@@ -1,4 +1,4 @@
-# 🤖 Minion: Autonomous Task Engine
+# Minion: Autonomous Task Engine
 
 Minion is a lightweight, zero-dependency, autonomous task engine written in Go. 
 
@@ -8,21 +8,42 @@ It acts as your personal AI web-scraping army.
 
 ---
 
-## 🚀 Quick Install
+## Installation
 
-You can install Minion on MacOS, Linux, or Windows (WSL/Git Bash) using this single command. It will download the source, compile the binary, and install it globally to your system so you can run the `minion` command from anywhere.
+Minion is a standalone binary. You do not need to install Go or any other dependencies. 
+Choose the correct command for your operating system to download and install Minion globally.
 
-*(Requires [Go](https://go.dev/doc/install) to be installed on your system).*
 
+### Mac (Apple Silicon / M1 / M2)
 ```bash
-go install github.com/yourusername/minion@latest
+curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-darwin-arm64 && chmod +x /usr/local/bin/minion
 ```
 
-*Note: If your terminal says `command not found: minion` after installing, ensure your Go bin directory is in your system PATH (e.g., `export PATH=$PATH:$(go env GOPATH)/bin`).*
+### Mac (Intel)
+```bash
+curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-darwin-amd64 && chmod +x /usr/local/bin/minion
+```
+
+### Linux (AMD64)
+```bash
+curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-linux-amd64 && chmod +x /usr/local/bin/minion
+```
+
+### Linux (ARM64 / Raspberry Pi)
+```bash
+curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-linux-arm64 && chmod +x /usr/local/bin/minion
+```
+
+### Windows (PowerShell)
+```powershell
+Invoke-WebRequest -Uri "https://github.com/lugenx/minion/releases/latest/download/minion-windows-amd64.exe" -OutFile "$env:USERPROFILE\minion.exe"
+
+# Ensure your user directory is in your PATH to run 'minion' from anywhere
+```
 
 ---
 
-## 📂 Directory Structure
+## Directory Structure
 
 When you run `minion` for the first time, it will automatically scaffold its required directories and files in your standard OS user folder (`~/.config/minion/` on Mac/Linux).
 
@@ -37,7 +58,7 @@ When you run `minion` for the first time, it will automatically scaffold its req
 
 ---
 
-## 💻 CLI Commands
+## CLI Commands
 
 Minion is designed to be incredibly simple to operate.
 
@@ -49,7 +70,7 @@ Minion is designed to be incredibly simple to operate.
 
 ---
 
-## ⚙️ Configuration Guide
+## Configuration Guide
 
 Every file in `~/.config/minion/minions/` represents a single task. Here is a breakdown of every feature available.
 
@@ -126,13 +147,12 @@ ai_instructions:
 ```
 
 ### Generic Webhook Notifications
-Minion features a 100% agnostic HTTP Webhook engine. It will POST the AI's summary to any URL. It is perfectly optimized for services like **ntfy.sh**.
+Minion features a 100% agnostic HTTP Webhook engine. It will POST the AI's summary to any URL. It is perfectly optimized for services like ntfy.sh.
 
-Minion supports **Environment Variable Expansion**, so you never have to hardcode passwords in your YAML files.
+Minion supports Environment Variable Expansion, so you never have to hardcode passwords in your YAML files.
 
 **1. Add your secrets to `~/.config/minion/.env`**
 ```env
-# Generate basic auth via: echo -n "user:pass" | base64
 NTFY_USER=minion
 NTFY_PASS=my_super_secret_password
 ```
@@ -156,7 +176,7 @@ webhook:
 
 ---
 
-## 🧠 Database Deduplication Architecture
+## Database Deduplication Architecture
 Minion uses a highly robust, pure-Go SQLite database to prevent notification spam.
 
-It does **not** deduplicate by URL (because a URL like `garysguide.com/events` changes daily). Instead, it deduplicates at the very end of the pipeline. It generates a cryptographic hash of the specific `Event Title` the AI found. If it has sent you an alert for that specific Event Title before, it silently drops it. This allows Minion to accurately track rolling date windows and rolling lists!
+It does not deduplicate by URL (because a URL like `garysguide.com/events` changes daily). Instead, it deduplicates at the very end of the pipeline. It generates a cryptographic hash of the specific `Event Title` the AI found. If it has sent you an alert for that specific Event Title before, it silently drops it. This allows Minion to accurately track rolling date windows and rolling lists!
