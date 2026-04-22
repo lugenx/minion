@@ -1,0 +1,24 @@
+# Binaries
+minion
+minion-linux
+minion.exe
+bin/
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+vendor/
+go.work
