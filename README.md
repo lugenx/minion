@@ -39,42 +39,6 @@ Invoke-WebRequest -Uri "https://github.com/lugenx/minion/releases/latest/downloa
 # Ensure your user directory is in your PATH to run 'minion' from anywhere
 ```
 
-### Mac (Intel)
-```bash
-curl -sSL https://github.com/lugenx/minion/releases/latest/download/minion-darwin-amd64 -o /tmp/minion && chmod +x /tmp/minion && sudo mv /tmp/minion /usr/local/bin/minion
-```
-
-### Linux (AMD64)
-```bash
-curl -sSL https://github.com/lugenx/minion/releases/latest/download/minion-linux-amd64 -o /tmp/minion && chmod +x /tmp/minion && sudo mv /tmp/minion /usr/local/bin/minion
-```
-
-### Linux (ARM64 / Raspberry Pi)
-```bash
-curl -sSL https://github.com/lugenx/minion/releases/latest/download/minion-linux-arm64 -o /tmp/minion && chmod +x /tmp/minion && sudo mv /tmp/minion /usr/local/bin/minion
-```
-
-### Mac (Intel)
-```bash
-curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-darwin-amd64 && chmod +x /usr/local/bin/minion
-```
-
-### Linux (AMD64)
-```bash
-curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-linux-amd64 && chmod +x /usr/local/bin/minion
-```
-
-### Linux (ARM64 / Raspberry Pi)
-```bash
-curl -sSL -o /usr/local/bin/minion https://github.com/lugenx/minion/releases/latest/download/minion-linux-arm64 && chmod +x /usr/local/bin/minion
-```
-
-### Windows (PowerShell)
-```powershell
-Invoke-WebRequest -Uri "https://github.com/lugenx/minion/releases/latest/download/minion-windows-amd64.exe" -OutFile "$env:USERPROFILE\minion.exe"
-# Ensure your user directory is in your PATH to run 'minion' from anywhere
-```
-
 ---
 
 ## Directory Structure
