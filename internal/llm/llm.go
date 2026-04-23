@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sashabaranov/go-openai"
@@ -112,6 +113,18 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string) 
 	}
 
 	content := resp.Choices[0].Message.Content
+
+	// Strip Markdown formatting if the AI added it (e.g. ```json ... ```)
+	content = strings.TrimSpace(content)
+	if strings.HasPrefix(content, "```json") {
+		content = strings.TrimPrefix(content, "```json")
+	} else if strings.HasPrefix(content, "```") {
+		content = strings.TrimPrefix(content, "```")
+	}
+	if strings.HasSuffix(content, "```") {
+		content = strings.TrimSuffix(content, "```")
+	}
+	content = strings.TrimSpace(content)
 
 	var result EvalResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
