@@ -3,7 +3,9 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 
 	"minion/internal/config"
 	"minion/internal/llm"
@@ -49,7 +51,17 @@ func RunMinion(ctx context.Context, minion *config.MinionConfig, runCtx *RunCont
 	}
 
 	if minion.WebSearch != nil {
-		for _, q := range minion.WebSearch.Queries {
+		// Initialize random seed for human-like jitter
+		rand.Seed(time.Now().UnixNano())
+
+		for i, q := range minion.WebSearch.Queries {
+			// Add a random delay (1 to 3 seconds) between searches to avoid rate limiting
+			if i > 0 {
+				jitter := time.Duration(rand.Intn(3)+1) * time.Second
+				step("DELAY", fmt.Sprintf("Waiting %v (search jitter)...", jitter), false)
+				time.Sleep(jitter)
+			}
+
 			step("SEARCH", fmt.Sprintf("Query: %s", q), false)
 			urls, err := scraper.SearchDuckDuckGo(q, minion.WebSearch.MaxResultsPerQuery)
 			if err != nil {
@@ -61,9 +73,18 @@ func RunMinion(ctx context.Context, minion *config.MinionConfig, runCtx *RunCont
 	}
 
 	// 2. Process URLs
-	for _, targetURL := range allURLs {
+	for i, targetURL := range allURLs {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+
+		// Add a tiny random delay (1-2 seconds) between actual webpage scrapes 
+		// to avoid triggering DDoS protections on the target servers, 
+		// especially if follow_links generated a massive list on the same domain.
+		if i > 0 {
+			jitter := time.Duration(rand.Intn(2)+1) * time.Second
+			step("DELAY", fmt.Sprintf("Waiting %v (scrape jitter)...", jitter), false)
+			time.Sleep(jitter)
 		}
 
 		// Scrape
