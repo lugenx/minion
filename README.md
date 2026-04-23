@@ -132,16 +132,16 @@ skip_if_contains:
   - "women only"
 ```
 
-### AI Instructions
-This is the core of the engine. Tell the AI exactly what you are looking for.
+### The Task (AI Instructions)
+This is the core of the engine. Tell the AI exactly what you are looking for in plain English.
 *   *Temporal Awareness:* Minion automatically injects your system's current Date and Time into the prompt. You can safely use instructions like "Must happen tomorrow" or "Drop events in the past."
 *   *List Parsing:* Minion is designed to extract multiple independent matches from a single page.
 
 ```yaml
-ai_instructions:
-  - "Must be an official software release announcement."
-  - "Looking for version 2.0 or higher."
-  - "Must be released within the next 7 days."
+task: |
+  Looking for official software release announcements for version 2.0 or higher.
+  Must be released within the next 7 days.
+  Write the summaries like a sarcastic tech journalist.
 ```
 
 ### Generic Webhook Notifications

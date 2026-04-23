@@ -12,11 +12,9 @@ import (
 
 // Match represents a single item found in the text that matches the criteria.
 type Match struct {
-	Title       string   `json:"title"`
-	URL         string   `json:"url"`
-	Confidence  float64  `json:"confidence"`
-	MissingData []string `json:"missing_data"`
-	Summary     string   `json:"summary"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Summary string `json:"summary"`
 }
 
 // EvalResult represents the JSON output expected from the LLM.
@@ -54,29 +52,32 @@ func NewEvaluator() (*Evaluator, error) {
 }
 
 // EvaluateText asks the LLM to evaluate the text against the provided rules.
-func (e *Evaluator) EvaluateText(ctx context.Context, text string, instructions []string) (*EvalResult, error) {
+func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string) (*EvalResult, error) {
 	currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 	
-	systemPrompt := "You are a precise data evaluation engine. Analyze the following text based strictly on the provided instructions.\n\n"
-	systemPrompt += fmt.Sprintf("CRITICAL CONTEXT: Today's date and time is %s. Use this to determine if events are in the past or future. NEVER return events that have already occurred.\n\n", currentDate)
-	systemPrompt += "Instructions:\n"
-	for _, inst := range instructions {
-		systemPrompt += "- " + inst + "\n"
+	systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
+	
+	systemPrompt += fmt.Sprintf("CRITICAL TEMPORAL CONTEXT:\nToday's date and time is %s. Use this as your reference point for any time-based rules in the user's task.\n\n", currentDate)
+	
+	systemPrompt += "--- USER TASK START ---\n"
+	if task != "" {
+		systemPrompt += task + "\n"
+	} else {
+		systemPrompt += "Extract all relevant information from the text.\n"
 	}
-	systemPrompt += "\nRules:\n"
-	systemPrompt += "- NEVER guess missing critical data, but flag it in the missing_data field.\n"
-	systemPrompt += "- Extract ALL independent items from the text that match the criteria.\n"
+	systemPrompt += "--- USER TASK END ---\n\n"
+	
+	systemPrompt += "MECHANICAL RULES:\n"
+	systemPrompt += "- Extract ALL independent items from the text that fulfill the user's task.\n"
 	systemPrompt += "- If the text provides a specific [Link: URL] for the item, extract it into the 'url' field. Otherwise, leave it blank.\n"
-	systemPrompt += "- If no items match, return an empty array for matches.\n"
+	systemPrompt += "- If no items match the task, return an empty array for matches.\n"
 	systemPrompt += "- You MUST output ONLY a valid JSON object matching this schema exactly:\n"
 	systemPrompt += `{
   "matches": [
     {
       "title": "Name or title of the matched item/event",
       "url": "Specific url for this event if found, else empty",
-      "confidence": number,
-      "missing_data": ["list of missing things if any"],
-      "summary": "1 sentence explanation of what it is and why it passed"
+      "summary": "1 sentence explanation of what it is and why it passed. (Note: This summary will be sent directly to the user, so write it for them to read)."
     }
   ]
 }`

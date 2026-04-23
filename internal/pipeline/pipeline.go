@@ -112,7 +112,7 @@ func RunMinion(ctx context.Context, minion *config.MinionConfig, runCtx *RunCont
 
 		// LLM Eval
 		step("EVAL", fmt.Sprintf("Evaluating %s", targetURL), false)
-		res, err := runCtx.LLM.EvaluateText(ctx, text, minion.AIInstructions)
+		res, err := runCtx.LLM.EvaluateText(ctx, text, minion.Task)
 		if err != nil {
 			step("EVAL ERROR", fmt.Sprintf("LLM failed for %s: %v", targetURL, err), true)
 			continue

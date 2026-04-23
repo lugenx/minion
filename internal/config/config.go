@@ -57,7 +57,7 @@ type MinionConfig struct {
 	Sources        []Source `yaml:"sources"`
 	WebSearch      *Search  `yaml:"web_search"`
 	SkipIfContains []string `yaml:"skip_if_contains"`
-	AIInstructions []string `yaml:"ai_instructions"`
+	Task           string   `yaml:"task"`
 
 	// Metadata
 	Filename string `yaml:"-"`
@@ -185,12 +185,12 @@ skip_if_contains:
   - "paywall"
   - "subscribe to read"
 
-# --- AI INSTRUCTIONS ---
-# The exact rules the LLM will use to find matches on the page.
-ai_instructions:
-  - "Must be an official software release announcement."
-  - "Looking for version 2.0 or higher."
-  - "Must be released within the next 7 days."
+# --- THE TASK ---
+# Tell the Minion exactly what to look for and how to format it.
+task: |
+  Looking for official software release announcements for version 2.0 or higher.
+  Must be released within the next 7 days.
+  Write the summaries like a sarcastic tech journalist.
 `
 	examplePath := filepath.Join(MinionsDir, "example.yaml")
 	_ = os.WriteFile(examplePath, []byte(exampleContent), 0644)
