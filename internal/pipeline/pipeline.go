@@ -58,7 +58,6 @@ func RunMinion(ctx context.Context, minion *config.MinionConfig, runCtx *RunCont
 			// Add a random delay (1 to 3 seconds) between searches to avoid rate limiting
 			if i > 0 {
 				jitter := time.Duration(rand.Intn(3)+1) * time.Second
-				step("DELAY", fmt.Sprintf("Waiting %v (search jitter)...", jitter), false)
 				time.Sleep(jitter)
 			}
 
@@ -78,12 +77,18 @@ func RunMinion(ctx context.Context, minion *config.MinionConfig, runCtx *RunCont
 			return ctx.Err()
 		}
 
+		// Fast Firewall Check: Was this URL permanently dropped previously?
+		isDropped, err := runCtx.Store.IsDropped(targetURL, minion.Name)
+		if err == nil && isDropped {
+			step("CACHED", fmt.Sprintf("Skipping permanently dropped URL: %s", targetURL), false)
+			continue
+		}
+
 		// Add a tiny random delay (1-2 seconds) between actual webpage scrapes 
 		// to avoid triggering DDoS protections on the target servers, 
 		// especially if follow_links generated a massive list on the same domain.
 		if i > 0 {
 			jitter := time.Duration(rand.Intn(2)+1) * time.Second
-			step("DELAY", fmt.Sprintf("Waiting %v (scrape jitter)...", jitter), false)
 			time.Sleep(jitter)
 		}
 
@@ -110,12 +115,24 @@ func RunMinion(ctx context.Context, minion *config.MinionConfig, runCtx *RunCont
 			continue
 		}
 
-		// LLM Eval
+		// LLM Eval (With a strict 45-second timeout per URL to prevent silent API hangs)
 		step("EVAL", fmt.Sprintf("Evaluating %s", targetURL), false)
-		res, err := runCtx.LLM.EvaluateText(ctx, text, minion.Task)
+		
+		evalCtx, evalCancel := context.WithTimeout(ctx, 45*time.Second)
+		res, err := runCtx.LLM.EvaluateText(evalCtx, text, minion.Task)
+		evalCancel()
+
 		if err != nil {
 			step("EVAL ERROR", fmt.Sprintf("LLM failed for %s: %v", targetURL, err), true)
 			continue
+		}
+
+		// Handle AI Caching Recommendation
+		if res.CacheAction == "permanent_drop" {
+			step("CACHE", fmt.Sprintf("AI marked %s for permanent drop", targetURL), false)
+			_ = runCtx.Store.MarkDropped(targetURL, minion.Name)
+		} else if res.CacheAction == "re_evaluate_later" {
+			step("KEEP", fmt.Sprintf("AI marked %s for re-evaluation later", targetURL), false)
 		}
 
 		if len(res.Matches) > 0 {
