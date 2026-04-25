@@ -44,6 +44,10 @@ func InitStore(dbPath string) (*Store, error) {
 		minion_name TEXT NOT NULL,
 		dropped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(url, minion_name)
+	);
+	CREATE TABLE IF NOT EXISTS active_jobs (
+		minion_filename TEXT PRIMARY KEY,
+		started_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	_, err = db.Exec(createTableQuery)
@@ -94,6 +98,33 @@ func (s *Store) MarkDropped(url, minionFilename string) error {
 	return err
 }
 
+func (s *Store) MarkJobActive(minionFilename string) error {
+	_, err := s.db.Exec("INSERT OR REPLACE INTO active_jobs (minion_filename, started_at) VALUES (?, ?)", minionFilename, time.Now())
+	return err
+}
+
+func (s *Store) MarkJobDone(minionFilename string) error {
+	_, err := s.db.Exec("DELETE FROM active_jobs WHERE minion_filename = ?", minionFilename)
+	return err
+}
+
+func (s *Store) GetActiveJobs() (map[string]bool, error) {
+	rows, err := s.db.Query("SELECT minion_filename FROM active_jobs")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	active := make(map[string]bool)
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err == nil {
+			active[filename] = true
+		}
+	}
+	return active, nil
+}
+
 func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 	res1, err := s.db.Exec("DELETE FROM scraped_pages WHERE minion_filename = ?", minionFilename)
 	if err != nil {
@@ -118,8 +149,14 @@ func (s *Store) ClearAllState() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	_, _ = s.db.Exec("DELETE FROM active_jobs")
 
 	count1, _ := res1.RowsAffected()
 	count2, _ := res2.RowsAffected()
 	return count1 + count2, nil
+}
+
+func (s *Store) ClearActiveJobs() error {
+	_, err := s.db.Exec("DELETE FROM active_jobs")
+	return err
 }

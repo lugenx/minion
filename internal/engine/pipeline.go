@@ -62,6 +62,9 @@ type RunContext struct {
 }
 
 func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext) error {
+	_ = runCtx.Store.MarkJobActive(minion.Filename)
+	defer runCtx.Store.MarkJobDone(minion.Filename)
+
 	step := func(s, details string, isError bool) {
 		if runCtx.OnStep != nil {
 			runCtx.OnStep(s, details, isError)
