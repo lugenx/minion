@@ -32,12 +32,17 @@ func SendNtfy(urlStr string, auth *BasicAuth, minionName string, item *types.Ite
 		req.SetBasicAuth(auth.Username, auth.Password)
 	}
 
-	title := fmt.Sprintf("%s: %s", minionName, item.Title)
+	title := item.Title
+	if title == "" {
+		title = fmt.Sprintf("%s Alert", minionName)
+	}
 	if len(title) > 64 {
 		title = title[:61] + "..."
 	}
 
 	req.Header.Set("Title", title)
+	req.Header.Set("Tags", minionName)
+
 	if item.URL != "" {
 		req.Header.Set("Click", item.URL)
 	}
