@@ -100,7 +100,7 @@ Use these commands to manage your tasks:
 
 *   **`minion test <filename>`** - Instantly runs a specific minion, ignoring its schedule. Outputs a step-by-step execution log.
 *   **`minion run -d`** - Starts the engine silently in the background. It will run your active minions on their designated schedules.
-*   **`minion logs <filename>`** - Follows the beautiful, live step-by-step execution logs for a specific minion while it runs in the background. (Leave filename blank to see master daemon logs).
+*   **`minion logs <filename>`** - Follows the live step-by-step execution logs for a specific minion while it runs in the background. (Leave filename blank to see master daemon logs).
 *   **`minion list`** - Displays a table of all your minions, their current state (Scheduled/Running/Stopped), and their next scheduled run time. (Use `-a` to show disabled minions).
 *   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen.
 *   **`minion stop`** - Halts the background daemon.
@@ -180,7 +180,7 @@ It natively supports Environment Variable Expansion so you never have to hardcod
 
 If you have the daemon running silently in the background, you might want to know exactly what it did when it finishes its run. 
 
-You can use the `report` block to get a beautiful scorecard containing the total execution time, LLM cost savings, and the number of items found.
+You can use the `report` block to get a scorecard containing the total execution time, LLM cost savings, and the number of items found.
 
 ```yaml
 - report:
