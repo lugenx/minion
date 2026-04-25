@@ -258,7 +258,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			var nextArray []types.Item
 			for _, m := range matchArray {
 				dropped := false
-				content := strings.ToLower(m.URL + " " + m.Text)
+				content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
 				for _, word := range dropWords {
 					if strings.Contains(content, word) {
 						step("FILTER", fmt.Sprintf("Dropped %s due to '%s'", m.URL, word), false)
