@@ -97,7 +97,27 @@ func GenerateContentHash(text string) string {
 	reUpdated := regexp.MustCompile(`(?i)(?:last\s*)?updated\s*(?:today|yesterday|now|\d+)`)
 	lower = reUpdated.ReplaceAllString(lower, "<UPDATED>")
 
-	// 5. Collapse Whitespace
+	// 5. "And X Others" (e.g., Jenny, Adry and 5 others)
+	reAndOthers := regexp.MustCompile(`(?i)(?:and\s+)?\d+\s+others?`)
+	lower = reAndOthers.ReplaceAllString(lower, "<AND_OTHERS>")
+
+	// 6. Attendees / Going (Event sites)
+	reAttendees := regexp.MustCompile(`(?i)\b\d+\s*(?:people\s*)?(?:going|interested|attending|registered)\b`)
+	lower = reAttendees.ReplaceAllString(lower, "<ATTENDEES>")
+
+	// 7. Active/Online Users (Forums)
+	reActiveUsers := regexp.MustCompile(`(?i)\b\d+\s*(?:users?\s*)?(?:online|active|viewing)(?:\s*now)?\b`)
+	lower = reActiveUsers.ReplaceAllString(lower, "<ACTIVE_USERS>")
+
+	// 8. Review Counters (e.g., 1,045 reviews)
+	reReviewCount := regexp.MustCompile(`(?i)\b\d+(?:,\d+)?\s*(?:customer\s*)?reviews?\b`)
+	lower = reReviewCount.ReplaceAllString(lower, "<REVIEW_COUNT>")
+
+	// 9. Follower/Subscriber Counters
+	reFollowers := regexp.MustCompile(`(?i)\b\d+(?:[kKmM])?\s*(?:followers?|subscribers?)\b`)
+	lower = reFollowers.ReplaceAllString(lower, "<FOLLOWER_COUNT>")
+
+	// 10. Collapse Whitespace
 	reWhitespace := regexp.MustCompile(`\s+`)
 	final := reWhitespace.ReplaceAllString(lower, " ")
 
