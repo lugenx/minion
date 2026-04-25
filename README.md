@@ -100,7 +100,7 @@ Use these commands to manage your tasks:
 
 *   **`minion test <filename>`** - Instantly runs a specific minion, ignoring its schedule. Outputs a step-by-step execution log.
 *   **`minion run -d`** - Starts the engine silently in the background. It will run your active minions on their designated schedules.
-*   **`minion logs <filename>`** - Follows the live step-by-step execution logs for a specific minion while it runs in the background. (Leave filename blank to see master daemon logs).
+*   **`minion log <filename>`** - Follows the live step-by-step execution log for a specific minion while it runs in the background. (Leave filename blank to see master daemon log).
 *   **`minion list`** - Displays a table of all your minions, their current state (Scheduled/Running/Stopped), and their next scheduled run time. (Use `-a` to show disabled minions).
 *   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen.
 *   **`minion stop`** - Halts the background daemon.

@@ -13,11 +13,11 @@ import (
 	"minion/internal/config"
 )
 
-var logsCmd = &cobra.Command{
-	Use:   "logs [filename]",
+var logCmd = &cobra.Command{
+	Use:   "log [filename]",
 	Short: "Follows the live output of a specific minion, or the master daemon log",
 	Long: `Follows the live output logs. 
-If you provide a minion filename (e.g. "minion logs event_finder"), it follows the detailed step-by-step logs for that specific minion.
+If you provide a minion filename (e.g. "minion log event_finder"), it follows the detailed step-by-step log for that specific minion.
 If you provide no arguments, it follows the master daemon log.`,
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
@@ -40,14 +40,14 @@ If you provide no arguments, it follows the master daemon log.`,
 			return
 		}
 
-		fmt.Printf("Following logs at %s...\n(Press Ctrl+C to exit)\n\n", targetLog)
+		fmt.Printf("Following log at %s...\n(Press Ctrl+C to exit)\n\n", targetLog)
 
 		tailCmd := exec.Command("tail", "-f", targetLog)
 		tailCmd.Stdout = os.Stdout
 		tailCmd.Stderr = os.Stderr
 
 		if err := tailCmd.Start(); err != nil {
-			fmt.Printf("Error trailing logs: %v\n", err)
+			fmt.Printf("Error trailing log: %v\n", err)
 			return
 		}
 
@@ -56,10 +56,10 @@ If you provide no arguments, it follows the master daemon log.`,
 		<-sigChan
 
 		_ = tailCmd.Process.Kill()
-		fmt.Println("\nStopped following logs.")
+		fmt.Println("\nStopped following log.")
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(logCmd)
 }
