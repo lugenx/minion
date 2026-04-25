@@ -17,9 +17,47 @@ import (
 	"minion/internal/delivery"
 )
 
+type Stats struct {
+	StartTime      time.Time
+	EndTime        time.Time
+	PagesScraped   int
+	PagesCached    int
+	LLMEvals       int
+	ItemsFound     int
+	ItemsDelivered int
+	Errors         int
+}
+
+func (s *Stats) Duration() time.Duration {
+	if s.EndTime.IsZero() {
+		return time.Since(s.StartTime)
+	}
+	return s.EndTime.Sub(s.StartTime)
+}
+
+func (s *Stats) GenerateReport() string {
+	return fmt.Sprintf(
+		"Start: %s\n"+
+			"End:   %s\n"+
+			"Time:  %s\n\n"+
+			"Pages Fetched:   %d\n"+
+			"Pages Cached:    %d\n"+
+			"LLM Evaluations: %d\n"+
+			"Items Found:     %d\n"+
+			"Items Delivered: %d\n"+
+			"Errors:          %d",
+		s.StartTime.Format("2006-01-02 15:04:05"),
+		s.EndTime.Format("15:04:05"),
+		s.Duration().Round(time.Millisecond*100),
+		s.PagesScraped, s.PagesCached, s.LLMEvals,
+		s.ItemsFound, s.ItemsDelivered, s.Errors,
+	)
+}
+
 type RunContext struct {
 	Store  *store.Store
 	LLM    *llm.Evaluator
+	Stats  *Stats
 	OnStep func(step, details string, isError bool)
 }
 
@@ -31,6 +69,10 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 	}
 
 	step("MISSION", fmt.Sprintf("Starting %s", minion.Name), false)
+
+	if runCtx.Stats == nil {
+		runCtx.Stats = &Stats{StartTime: time.Now()}
+	}
 
 	var startingURLs []string
 
@@ -64,6 +106,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 				step("SEARCH", fmt.Sprintf("Query: %s", q), false)
 				urls, err := scraper.SearchDuckDuckGo(q, limit)
 				if err != nil {
+					runCtx.Stats.Errors++
 					step("SEARCH ERROR", err.Error(), true)
 					continue
 				}
@@ -93,6 +136,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 							step("BROWSE", fmt.Sprintf("Scanning %s for regex '%s'", u, matchPattern), false)
 							links, err := scraper.ExtractLinks(u, matchPattern)
 							if err != nil {
+								runCtx.Stats.Errors++
 								step("BROWSE ERROR", err.Error(), true)
 								continue
 							}
@@ -117,7 +161,34 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		item := &types.Item{URL: u}
 		err := ProcessItem(ctx, minion, item, runCtx, i > 0, "cron")
 		if err != nil {
+			runCtx.Stats.Errors++
 			step("ERROR", fmt.Sprintf("Failed processing %s: %v", u, err), true)
+		}
+	}
+
+	runCtx.Stats.EndTime = time.Now()
+
+	// Check for a report action to deliver the stats
+	for _, action := range minion.Mission {
+		if val, ok := action["report"]; ok {
+			var targets []map[string]interface{}
+			if tList, ok := val.([]interface{}); ok {
+				for _, t := range tList {
+					if tMap, ok := t.(map[string]interface{}); ok {
+						targets = append(targets, tMap)
+					}
+				}
+			}
+
+			reportText := runCtx.Stats.GenerateReport()
+			reportItem := types.Item{
+				Title:   fmt.Sprintf("Mission Report: %s", minion.Name),
+				Summary: reportText,
+			}
+
+			step("REPORT", "Delivering mission report", false)
+			deliverTargets(ctx, minion, runCtx, []types.Item{reportItem}, targets, false)
+			break
 		}
 	}
 
@@ -223,12 +294,16 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				step("SCRAPE", m.URL, false)
 				text, hash, err := scraper.FetchAndSanitize(m.URL)
 				if err != nil {
+					runCtx.Stats.Errors++
 					step("SCRAPE ERROR", err.Error(), true)
 					continue
 				}
 
+				runCtx.Stats.PagesScraped++
+
 				savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
 				if savedHash == hash {
+					runCtx.Stats.PagesCached++
 					step("CACHED", "Page content unchanged, skipping LLM", false)
 					continue
 				}
@@ -257,12 +332,14 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 
 				step("STUDY", fmt.Sprintf("Reading %s", m.URL), false)
+				runCtx.Stats.LLMEvals++
 				
 				evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
 				res, err := runCtx.LLM.EvaluateText(evalCtx, content, task, format)
 				evalCancel()
 
 				if err != nil {
+					runCtx.Stats.Errors++
 					step("STUDY ERROR", fmt.Sprintf("LLM failed for %s: %v", m.URL, err), true)
 					continue
 				}
@@ -273,6 +350,8 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				} else if res.CacheAction == "re_evaluate_later" {
 					step("KEEP", fmt.Sprintf("AI marked %s for re-evaluation later", m.URL), false)
 				}
+
+				runCtx.Stats.ItemsFound += len(res.Matches)
 
 				for _, aiMatch := range res.Matches {
 					nextArray = append(nextArray, types.Item{
@@ -300,100 +379,120 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 			}
 
-			// We will track which pages we successfully delivered items for, so we can save their hash
-			pagesDelivered := make(map[string]string)
-
-			for _, m := range matchArray {
-				step("ITEM", fmt.Sprintf("%s: %s", m.Title, m.Summary), false)
-
-				for _, t := range targets {
-					if ntfyURL, ok := t["ntfy"]; ok {
-						urlStr := fmt.Sprintf("%v", ntfyURL)
-						var auth *delivery.BasicAuth
-						if baData, ok := t["basic_auth"]; ok {
-							b, _ := yaml.Marshal(baData)
-							yaml.Unmarshal(b, &auth)
-						}
-						
-						err := delivery.SendNtfy(urlStr, auth, minion.Name, &m)
-						if err != nil {
-							step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
-						} else {
-							step("DELIVERY", fmt.Sprintf("Sent ntfy alert for '%s'", m.Title), false)
-						}
-					}
-
-					if discordURL, ok := t["discord"]; ok {
-						urlStr := fmt.Sprintf("%v", discordURL)
-						err := delivery.SendDiscord(urlStr, minion.Name, &m)
-						if err != nil {
-							step("DELIVERY ERROR", fmt.Sprintf("discord: %v", err), true)
-						} else {
-							step("DELIVERY", fmt.Sprintf("Sent discord alert for '%s'", m.Title), false)
-						}
-					}
-
-					if reqURL, ok := t["http_request"]; ok {
-						urlStr := fmt.Sprintf("%v", reqURL)
-						wbConfig := &delivery.HTTPRequestConfig{URL: urlStr}
-						
-						if method, ok := t["method"].(string); ok {
-							wbConfig.Method = method
-						}
-						if tmpl, ok := t["payload_template"].(string); ok {
-							wbConfig.PayloadTemplate = tmpl
-						}
-						if headers, ok := t["headers"].(map[string]interface{}); ok {
-							wbConfig.Headers = make(map[string]string)
-							for k, v := range headers {
-								wbConfig.Headers[k] = fmt.Sprintf("%v", v)
-							}
-						}
-						if baData, ok := t["basic_auth"]; ok {
-							b, _ := yaml.Marshal(baData)
-							var ba delivery.BasicAuth
-							yaml.Unmarshal(b, &ba)
-							wbConfig.BasicAuth = &ba
-						}
-
-						err := delivery.SendHTTPRequest(wbConfig, &m)
-						if err != nil {
-							step("DELIVERY ERROR", fmt.Sprintf("http_request: %v", err), true)
-						} else {
-							step("DELIVERY", fmt.Sprintf("Sent custom HTTP request for '%s'", m.Title), false)
-						}
-					}
-
-					if minionNameRaw, ok := t["minion"]; ok {
-						targetMinionName := fmt.Sprintf("%v", minionNameRaw)
-						step("CHAIN", fmt.Sprintf("Delivering item to minion '%s'", targetMinionName), false)
-						
-						targetMinion, err := config.LoadMinion(targetMinionName)
-						if err != nil {
-							step("CHAIN ERROR", fmt.Sprintf("Failed to load target minion '%s': %v", targetMinionName, err), true)
-						} else {
-							// Recursively process the item through the target minion's pipeline
-							err = ProcessItem(ctx, targetMinion, &m, runCtx, false, minion.Filename)
-							if err != nil {
-								step("CHAIN ERROR", fmt.Sprintf("Target minion '%s' failed: %v", targetMinionName, err), true)
-							}
-						}
-					}
-				}
-				
-				// Keep track of the URL and Hash so we can save it after the loop
-				if m.URL != "" && m.TempHash != "" {
-					pagesDelivered[m.URL] = m.TempHash
-				}
-			}
-
-			// After successfully delivering the items for the scraped pages, update their hash
-			for url, hash := range pagesDelivered {
-				_ = runCtx.Store.UpdatePageHash(url, minion.Filename, hash)
-			}
+			deliverTargets(ctx, minion, runCtx, matchArray, targets, true)
 			continue
 		}
 	}
 
 	return nil
+}
+
+func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext, matchArray []types.Item, targets []map[string]interface{}, saveHash bool) {
+	step := func(s, details string, isError bool) {
+		if runCtx.OnStep != nil {
+			runCtx.OnStep(s, details, isError)
+		}
+	}
+
+	pagesDelivered := make(map[string]string)
+
+	for _, m := range matchArray {
+		if saveHash {
+			step("ITEM", fmt.Sprintf("%s: %s", m.Title, m.Summary), false)
+		}
+
+		for _, t := range targets {
+			if ntfyURL, ok := t["ntfy"]; ok {
+				urlStr := fmt.Sprintf("%v", ntfyURL)
+				var auth *delivery.BasicAuth
+				if baData, ok := t["basic_auth"]; ok {
+					b, _ := yaml.Marshal(baData)
+					yaml.Unmarshal(b, &auth)
+				}
+				
+				err := delivery.SendNtfy(urlStr, auth, minion.Name, &m)
+				if err != nil {
+					runCtx.Stats.Errors++
+					step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
+				} else {
+					if saveHash { runCtx.Stats.ItemsDelivered++ }
+					step("DELIVERY", fmt.Sprintf("Sent ntfy alert for '%s'", m.Title), false)
+				}
+			}
+
+			if discordURL, ok := t["discord"]; ok {
+				urlStr := fmt.Sprintf("%v", discordURL)
+				err := delivery.SendDiscord(urlStr, minion.Name, &m)
+				if err != nil {
+					runCtx.Stats.Errors++
+					step("DELIVERY ERROR", fmt.Sprintf("discord: %v", err), true)
+				} else {
+					if saveHash { runCtx.Stats.ItemsDelivered++ }
+					step("DELIVERY", fmt.Sprintf("Sent discord alert for '%s'", m.Title), false)
+				}
+			}
+
+			if reqURL, ok := t["http_request"]; ok {
+				urlStr := fmt.Sprintf("%v", reqURL)
+				wbConfig := &delivery.HTTPRequestConfig{URL: urlStr}
+				
+				if method, ok := t["method"].(string); ok {
+					wbConfig.Method = method
+				}
+				if tmpl, ok := t["payload_template"].(string); ok {
+					wbConfig.PayloadTemplate = tmpl
+				}
+				if headers, ok := t["headers"].(map[string]interface{}); ok {
+					wbConfig.Headers = make(map[string]string)
+					for k, v := range headers {
+						wbConfig.Headers[k] = fmt.Sprintf("%v", v)
+					}
+				}
+				if baData, ok := t["basic_auth"]; ok {
+					b, _ := yaml.Marshal(baData)
+					var ba delivery.BasicAuth
+					yaml.Unmarshal(b, &ba)
+					wbConfig.BasicAuth = &ba
+				}
+
+				err := delivery.SendHTTPRequest(wbConfig, &m)
+				if err != nil {
+					runCtx.Stats.Errors++
+					step("DELIVERY ERROR", fmt.Sprintf("http_request: %v", err), true)
+				} else {
+					if saveHash { runCtx.Stats.ItemsDelivered++ }
+					step("DELIVERY", fmt.Sprintf("Sent custom HTTP request for '%s'", m.Title), false)
+				}
+			}
+
+			if minionNameRaw, ok := t["minion"]; ok {
+				targetMinionName := fmt.Sprintf("%v", minionNameRaw)
+				step("CHAIN", fmt.Sprintf("Delivering item to minion '%s'", targetMinionName), false)
+				
+				targetMinion, err := config.LoadMinion(targetMinionName)
+				if err != nil {
+					runCtx.Stats.Errors++
+					step("CHAIN ERROR", fmt.Sprintf("Failed to load target minion '%s': %v", targetMinionName, err), true)
+				} else {
+					err = ProcessItem(ctx, targetMinion, &m, runCtx, false, minion.Filename)
+					if err != nil {
+						runCtx.Stats.Errors++
+						step("CHAIN ERROR", fmt.Sprintf("Target minion '%s' failed: %v", targetMinionName, err), true)
+					} else {
+						if saveHash { runCtx.Stats.ItemsDelivered++ }
+					}
+				}
+			}
+		}
+		
+		if m.URL != "" && m.TempHash != "" {
+			pagesDelivered[m.URL] = m.TempHash
+		}
+	}
+
+	if saveHash {
+		for url, hash := range pagesDelivered {
+			_ = runCtx.Store.UpdatePageHash(url, minion.Filename, hash)
+		}
+	}
 }
