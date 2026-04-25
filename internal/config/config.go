@@ -23,6 +23,7 @@ var (
 	GlobalConfigDir string
 	EnvPath         string
 	MinionsDir      string
+	LogsDir         string
 	DBPath          string
 	LogPath         string
 	PIDPath         string
@@ -37,6 +38,7 @@ func init() {
 	GlobalConfigDir = filepath.Join(homeDir, ".config", "minion")
 	EnvPath = filepath.Join(GlobalConfigDir, ".env")
 	MinionsDir = filepath.Join(GlobalConfigDir, "minions")
+	LogsDir = filepath.Join(GlobalConfigDir, "logs")
 	DBPath = filepath.Join(GlobalConfigDir, "minion.db")
 	LogPath = filepath.Join(GlobalConfigDir, "minion.log")
 	PIDPath = filepath.Join(GlobalConfigDir, "minion.pid")
@@ -45,6 +47,9 @@ func init() {
 func EnsureDirectories() error {
 	if err := os.MkdirAll(MinionsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create minions directory: %w", err)
+	}
+	if err := os.MkdirAll(LogsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create logs directory: %w", err)
 	}
 
 	if _, err := os.Stat(EnvPath); os.IsNotExist(err) {

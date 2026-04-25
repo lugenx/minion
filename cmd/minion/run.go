@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -176,7 +178,29 @@ func runDaemon() {
 		
 		_, err = c.AddFunc(cronExpr, func() {
 			logMessage("INFO", currentMinion.Name, "Running scheduled task...")
+
+			// Setup Per-Minion Log File
+			displayFile := strings.TrimSuffix(currentMinion.Filename, ".yaml")
+			displayFile = strings.TrimSuffix(displayFile, ".yml")
+			minionLogPath := filepath.Join(config.LogsDir, displayFile+".log")
+
+			minionLogFile, err := os.OpenFile(minionLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+			if err != nil {
+				logMessage("ERROR", currentMinion.Name, fmt.Sprintf("Failed to open log file: %v", err))
+				return
+			}
+			defer minionLogFile.Close()
+
+			fileRenderer := lipgloss.NewRenderer(minionLogFile)
+			fileRenderer.SetColorProfile(termenv.TrueColor)
 			
+			stepStyle := fileRenderer.NewStyle().Bold(true).Width(15).Align(lipgloss.Right).MarginRight(2)
+			okColor := lipgloss.Color("42")
+			warnColor := lipgloss.Color("214")
+			errColor := lipgloss.Color("9")
+			infoColor := lipgloss.Color("39")
+			neutralColor := lipgloss.Color("240")
+
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 			defer cancel()
 			
@@ -184,10 +208,33 @@ func runDaemon() {
 				Store: dbStore,
 				LLM:   llmEval,
 				OnStep: func(step, details string, isError bool) {
+					// 1. Write beautiful granular logs to the minion's specific file
+					color := neutralColor 
+					switch step {
+					case "DONE", "MATCH", "WEBHOOK", "ITEM":
+						color = okColor 
+					case "CACHED", "DEDUPE", "FILTER":
+						color = warnColor 
+					case "CACHE", "KEEP", "NO MATCH":
+						color = infoColor 
+					case "ERROR", "SEARCH ERROR", "BROWSE ERROR", "SCRAPE ERROR", "STUDY ERROR", "STORE ERROR", "WEBHOOK ERROR":
+						color = errColor 
+					}
+
+					s := stepStyle.Foreground(color).Render("[" + step + "]")
+					
+					detailStyle := fileRenderer.NewStyle()
+					if isError {
+						detailStyle = detailStyle.Foreground(errColor)
+					} else if color == neutralColor {
+						detailStyle = detailStyle.Foreground(lipgloss.Color("245"))
+					}
+
+					fmt.Fprintf(minionLogFile, "%s %s\n", s, detailStyle.Render(details))
+
+					// 2. Also log major errors to the master daemon log
 					if isError {
 						logMessage("ERROR", currentMinion.Name, fmt.Sprintf("%s: %s", step, details))
-					} else if step == "MATCH" || step == "WEBHOOK" {
-						logMessage("SUCCESS", currentMinion.Name, details)
 					}
 				}, 
 			}
@@ -204,6 +251,15 @@ func runDaemon() {
 					runCtx.Stats.Errors,
 				)
 				logMessage("INFO", currentMinion.Name, statsMsg)
+
+				// Write the final stats box to the minion's log file too
+				fmt.Fprintln(minionLogFile)
+				boxStyle := fileRenderer.NewStyle().
+					Border(lipgloss.RoundedBorder()).
+					BorderForeground(lipgloss.Color("39")).
+					Padding(1, 4)
+				fmt.Fprintln(minionLogFile, boxStyle.Render(runCtx.Stats.GenerateReport()))
+				fmt.Fprintln(minionLogFile)
 			}
 		})
 
