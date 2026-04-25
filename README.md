@@ -175,6 +175,34 @@ It natively supports Environment Variable Expansion so you never have to hardcod
         password: "${WEBHOOK_PASS}"
 ```
 
+### Mission Reports
+
+If you have the daemon running silently in the background, you might want to know exactly what it did when it finishes its run. 
+
+You can use the `report` block to get a beautiful scorecard containing the total execution time, LLM cost savings, and the number of items found.
+
+```yaml
+- report:
+    # Send the mission report to your phone via Ntfy or Discord
+    - ntfy: "https://ntfy.sh/my-logs"
+```
+
+The report block uses the exact same routing syntax as `deliver`, but it only executes once at the very end of the pipeline.
+
+**Example Report Output:**
+```text
+Start: 2024-10-25 14:30:00
+End:   14:30:04
+Time:  4.2s
+
+Pages Fetched:   5
+Pages Cached:    4
+LLM Evaluations: 1
+Items Found:     2
+Items Delivered: 2
+Errors:          0
+```
+
 ### Handing Data to Other Minions
 Minions can deliver data directly to other minions. This is useful if you want to split up your work—for example, one minion can gather 50 links from the web, and hand those links off to two different minions that study the text for completely different things.
 
@@ -202,10 +230,10 @@ mission:
 
 ## Smart Caching Architecture
 
-Minion uses a highly robust, two-tier SQLite database to prevent notification spam and save you money on AI API calls.
+Minion uses a highly robust, deterministic SQLite database to prevent notification spam and save you money on AI API calls.
 
-1. **The AI Firewall (`dropped_urls`):** When the minion studies a page, it decides if the page is fundamentally irrelevant (e.g., a "Cooking Class" when you asked for "Tech Events"). If it is, the minion permanently drops it. The engine logs that URL to a firewall database and will **never** scrape or evaluate it again, saving massive amounts of time on future runs.
-2. **Notification Deduplication (`sent_notifications`):** It generates a cryptographic hash of the specific `Title` the minion found. If it has sent you an alert for that specific Title before, it silently drops it. This allows Minion to accurately track rolling date windows and rolling lists without spamming you!
+1. **Page-Level Content Hashing:** When Minion scrapes a webpage, it extracts the visible text, aggressively masks out web noise (like "Updated 5 mins ago" or "100 Views"), and generates a deterministic math hash (SHA-256) of the core content. If the page hasn't meaningfully changed since the last run, the engine drops it immediately. **It does not call the LLM.** This saves you massive amounts of time and money on unchanged websites while safely capturing critical changes like price drops or updated event times.
+2. **The AI Firewall (`dropped_urls`):** When the AI *does* study a page, it decides if the page is fundamentally off-topic. If it is, the AI flags it as a `permanent_drop`. The engine logs that URL to a firewall database and will never scrape it again.
 
 ---
 
