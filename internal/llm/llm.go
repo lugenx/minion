@@ -54,7 +54,7 @@ func NewEvaluator() (*Evaluator, error) {
 }
 
 // EvaluateText asks the LLM to evaluate the text against the provided rules.
-func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string) (*EvalResult, error) {
+func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string) (*EvalResult, error) {
 	currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 	
 	systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
@@ -124,6 +124,15 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string) 
 	if strings.HasSuffix(content, "```") {
 		content = strings.TrimSuffix(content, "```")
 	}
+	
+	// Extract only the JSON block (from first { to last })
+	// This prevents "Chain of Thought" conversational text from breaking the parser
+	startIdx := strings.Index(content, "{")
+	endIdx := strings.LastIndex(content, "}")
+	if startIdx != -1 && endIdx != -1 && endIdx >= startIdx {
+		content = content[startIdx : endIdx+1]
+	}
+
 	content = strings.TrimSpace(content)
 
 	var result EvalResult

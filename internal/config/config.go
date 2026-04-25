@@ -10,62 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Source struct {
-	URL         string `yaml:"url"`
-	FollowLinks string `yaml:"follow_links"`
-}
-
-// UnmarshalYAML handles both flat strings and structured maps for Sources.
-func (s *Source) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind == yaml.ScalarNode {
-		s.URL = value.Value
-		s.FollowLinks = ""
-		return nil
-	}
-
-	type rawSource struct {
-		URL         string `yaml:"url"`
-		FollowLinks string `yaml:"follow_links"`
-	}
-	var rs rawSource
-	if err := value.Decode(&rs); err != nil {
-		return err
-	}
-	s.URL = rs.URL
-	s.FollowLinks = rs.FollowLinks
-	return nil
-}
-
-type BasicAuth struct {
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
-}
-
-type Webhook struct {
-	URL       string            `yaml:"url"`
-	Method    string            `yaml:"method"`
-	BasicAuth *BasicAuth        `yaml:"basic_auth"`
-	Headers   map[string]string `yaml:"headers"`
-}
-
-// MinionConfig represents a parsed YAML minion task.
+// MinionConfig represents a v2 task. It contains an array of raw pipeline steps.
 type MinionConfig struct {
-	Name           string   `yaml:"name"`
-	Enabled        *bool    `yaml:"enabled"` // Pointer to distinguish missing vs false. Defaults to true.
-	Schedule       string   `yaml:"schedule"`
-	Webhook        *Webhook `yaml:"webhook"`
-	Sources        []Source `yaml:"sources"`
-	WebSearch      *Search  `yaml:"web_search"`
-	SkipIfContains []string `yaml:"skip_if_contains"`
-	Task           string   `yaml:"task"`
-
-	// Metadata
-	Filename string `yaml:"-"`
-}
-
-type Search struct {
-	Queries           []string `yaml:"queries"`
-	MaxResultsPerQuery int      `yaml:"max_results_per_query"`
+	Name     string                   `yaml:"name"`
+	Enabled  *bool                    `yaml:"enabled"`
+	Mission  []map[string]interface{} `yaml:"mission"`
+	
+	Filename string                   `yaml:"-"`
 }
 
 var (
@@ -80,10 +31,9 @@ var (
 func init() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		homeDir = "." // Fallback if home directory cannot be found
+		homeDir = "." 
 	}
 
-	// Explicitly use ~/.config/minion for consistency across Linux and macOS
 	GlobalConfigDir = filepath.Join(homeDir, ".config", "minion")
 	EnvPath = filepath.Join(GlobalConfigDir, ".env")
 	MinionsDir = filepath.Join(GlobalConfigDir, "minions")
@@ -92,14 +42,11 @@ func init() {
 	PIDPath = filepath.Join(GlobalConfigDir, "minion.pid")
 }
 
-// EnsureDirectories checks and creates the global config directories if they don't exist.
-// It also scaffolds the example files for new users.
 func EnsureDirectories() error {
 	if err := os.MkdirAll(MinionsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create minions directory: %w", err)
 	}
 
-	// Always scaffold if files are missing
 	if _, err := os.Stat(EnvPath); os.IsNotExist(err) {
 		scaffoldExampleFiles()
 	} else if _, err := os.Stat(filepath.Join(MinionsDir, "example.yaml")); os.IsNotExist(err) {
@@ -110,9 +57,8 @@ func EnsureDirectories() error {
 }
 
 func scaffoldExampleFiles() {
-	// Create .env
 	envContent := `# =================================================================
-# MINION SECRETS & CONFIGURATION
+# MINION V2 SECRETS & CONFIGURATION
 # =================================================================
 # This file is loaded automatically by the minion engine.
 # You can inject these variables into your minion YAML files using ${VAR_NAME}
@@ -125,93 +71,109 @@ DEFAULT_MODEL=openai/gpt-4o-mini
 
 # OPTIONAL: Example of custom secrets you can inject into your YAML files.
 # If you run a private server that requires basic auth, store the credentials here.
-# MY_USERNAME=minion
+# MY_USERNAME=admin
 # MY_PASSWORD=super_secret_password
 `
 	_ = os.WriteFile(EnvPath, []byte(envContent), 0644)
 
-	// Create example.yaml
 	exampleContent := `# =================================================================
-# MINION REFERENCE GUIDE
+# MINION V2 REFERENCE GUIDE
 # =================================================================
-# This file shows every possible configuration option. 
-# You can copy/paste blocks from here to create your own minions!
+# Minion v2 operates on a linear stream. It gathers all URLs from 
+# your search and browse blocks, and then passes them one-by-one 
+# through the rest of the pipeline.
 
-name: "Example"
+name: "Tech Event Tracker"
 enabled: false # Set to true to let the daemon run this
 
-# --- SCHEDULING SYNTAX ---
-# Groups:   "daily @ 09:00", "weekdays @ 18:00", "weekends @ 12:00"
-# Specific: "mon, wed, fri @ 17:30"
-# Interval: "every 30m", "every 12h"
-# Raw Cron: "*/15 * * * *"
-schedule: "daily @ 09:00"
+mission:
+  # --- 1. SCHEDULING SYNTAX ---
+  # Groups:   "daily @ 09:00", "weekdays @ 18:00", "weekends @ 12:00"
+  # Specific: "mon, wed, fri @ 17:30"
+  # Interval: "every 30m", "every 12h"
+  # Raw Cron: "*/15 * * * *"
+  - schedule: "daily @ 09:00"
 
-# --- WEBHOOK NOTIFICATION ---
-# Where to send the alert. Supports any generic HTTP endpoint.
-webhook:
-  url: "https://ntfy.sh/mytopic"
-  # method: "POST" (default)
+  # --- 2. GENERATORS (Gathering Data) ---
+  - search: 
+      - "latest open source AI models"
+      - "AI startup news"
+    limit: 3
+
+  - browse:
+      # If no rule is given, it just returns this exact link
+      - url: "https://example.com/news"
+      
+      # If a rule is given, it browses the page and returns the matching sub-links
+      # Supports full Regex!
+      - url: "https://example.com/events"
+        match: "/events/"
+
+  # --- 3. THE PIPELINE (Runs one-by-one on the gathered links) ---
   
-  # Standard HTTP Basic Authentication
-  # You can securely inject secrets from your ~/.config/minion/.env file!
-  # basic_auth:
-  #   username: "${MY_USERNAME}"
-  #   password: "${MY_PASSWORD}"
-  
-  # Optional custom headers
-  # headers:
-  #   X-Custom-Header: "value"
+  # Fast Filter (Optional): Drop links before scraping them if they contain junk words.
+  - filter: 
+      drop_if_contains: ["webinar", "online only"]
 
-# --- SOURCES ---
-sources:
-  # Basic URL
-  - "https://example.com/news"
-  
-  # Auto-link follower (Visits homepage, then scrapes every link containing the pattern)
-  # - url: "https://example.com/products"
-  #   follow_links: "/releases/"
+  # Scrape: Download the actual HTML text of the clean links
+  - scrape: true
 
-# --- WEB SEARCH (Optional) ---
-# Automatically searches DuckDuckGo and scrapes the top results
-web_search:
-  queries:
-    - "latest open source AI models"
-  max_results_per_query: 3
+  # Study: Tell the minion exactly what you are looking for
+  - study: true
+    task: |
+      Looking for tech events or any nerdy events.
+      Must occur on Tuesday/Wednesday after 17:00, or Saturday after 15:00.
+      Must be in-person in New York.
 
-# --- FAST FILTER (Optional) ---
-# If any of these words are found, drop the page immediately before sending to AI
-skip_if_contains:
-  - "paywall"
-  - "subscribe to read"
+  # --- 4. DELIVERY ---
+  # Send the results anywhere you want. You can define multiple targets!
+  - deliver:
+      - ntfy: "https://ntfy.sh/mytopic"
+        # basic_auth:
+        #   username: "${MY_USERNAME}"
+        #   password: "${MY_PASSWORD}"
+        
+      # - discord: "https://discord.com/api/webhooks/..."
+      
+      # - minion: "my_worker_minion_filename"
+      
+      # - http_request: "https://custom-api.com/v1/data"
+      #   method: "POST"
+      #   headers:
+      #     Content-Type: "application/json"
+      #   payload_template: |
+      #     {"custom_title": "{{.Title}}", "desc": "{{.Summary}}"}
 
-# --- THE TASK ---
-# Tell the Minion exactly what to look for and how to format it.
-task: |
-  Looking for official software release announcements for version 2.0 or higher.
-  Must be released within the next 7 days.
-  Write the summaries like a sarcastic tech journalist.
+# =================================================================
+# EXAMPLE WORKER MINION
+# =================================================================
+# If you created a separate file called my_worker.yaml to receive 
+# data from this minion, it would look like this:
+#
+# name: "Worker Bot"
+# enabled: true
+# mission:
+#   - receive: "Tech Event Tracker"
+#   - scrape: true
+#   - study: true
+#     task: "Summarize this."
+#   - deliver:
+#       - ntfy: "https://ntfy.sh/alerts"
 `
 	examplePath := filepath.Join(MinionsDir, "example.yaml")
 	_ = os.WriteFile(examplePath, []byte(exampleContent), 0644)
 }
-
-// LoadEnv loads the .env file from the global config directory.
 func LoadEnv() error {
 	EnsureDirectories()
-	// Ignore error if file doesn't exist, we will check actual env vars later.
 	_ = godotenv.Load(EnvPath)
 	return nil
 }
 
-// LoadMinion reads and parses a specific minion YAML file.
 func LoadMinion(filename string) (*MinionConfig, error) {
-	// Add .yaml extension if missing
 	if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
 		filename += ".yaml"
 	}
 	
-	// If it's just a name without a path, assume it's in the MinionsDir
 	path := filename
 	if !filepath.IsAbs(path) && !strings.Contains(path, string(os.PathSeparator)) {
 		path = filepath.Join(MinionsDir, filename)
@@ -222,7 +184,6 @@ func LoadMinion(filename string) (*MinionConfig, error) {
 		return nil, fmt.Errorf("failed to read minion file %s: %w", path, err)
 	}
 
-	// Expand environment variables (e.g. ${NTFY_AUTH})
 	expandedData := os.ExpandEnv(string(data))
 
 	var m MinionConfig
@@ -230,18 +191,15 @@ func LoadMinion(filename string) (*MinionConfig, error) {
 		return nil, fmt.Errorf("failed to parse minion YAML %s: %w", path, err)
 	}
 	
-	// Default Enabled to true if it was not specified in the YAML
 	if m.Enabled == nil {
 		defaultEnabled := true
 		m.Enabled = &defaultEnabled
 	}
 	
 	m.Filename = filepath.Base(path)
-
 	return &m, nil
 }
 
-// LoadAllMinions reads all YAML files in the MinionsDir.
 func LoadAllMinions() ([]*MinionConfig, error) {
 	var minions []*MinionConfig
 
@@ -250,7 +208,7 @@ func LoadAllMinions() ([]*MinionConfig, error) {
 		if os.IsNotExist(err) {
 			return minions, nil
 		}
-		return nil, fmt.Errorf("failed to read minions directory: %w", err)
+		return nil, err
 	}
 
 	for _, entry := range entries {

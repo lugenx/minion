@@ -2,7 +2,7 @@
 
 Minion is a lightweight tool for automating web research.
 
-Instead of manually checking websites for updates, you create simple YAML files (called "minions") to act as your autonomous agents. A minion will browse your target websites, use AI to extract the specific information you asked for, and trigger a webhook alert to let you know when it finds a match.
+Instead of manually checking websites for updates, you create simple YAML scripts to act as your autonomous agents. Minion uses an explicit "Execution Graph" architecture. You command the agent step-by-step to browse websites, study the text to extract specific information, and trigger webhook alerts when it finds a match.
 
 ---
 
@@ -44,34 +44,55 @@ When you run `minion` for the first time, it automatically creates a `~/.config/
 ### 1. Add your API Keys
 Open `~/.config/minion/.env` and add your OpenRouter API key so your minions can process text. You can also securely store any Webhook passwords here.
 
-### 2. Create a Minion
-Every file you put in `~/.config/minion/minions/` is a new minion agent. Here is a basic example of a task configuration:
+### 2. Create a Mission
+Every file you put in `~/.config/minion/minions/` is a new minion agent. 
+
+Minion operates on a linear stream. It gathers all URLs from your search and browse blocks, and then passes them one-by-one through the rest of the pipeline. Here is a complete example:
 
 ```yaml
 name: "Product Release Tracker"
 enabled: true 
-schedule: "daily @ 09:00"
 
-# Where should the minion look?
-sources:
-  - "https://example.com/news"
+mission:
+  # 1. The Trigger
+  - schedule: "daily @ 09:00"
 
-# If the page contains these exact words, the minion skips it.
-skip_if_contains:
-  - "paywall"
-  - "subscribe to read"
+  # 2. Gather URLs
+  - search: 
+      - "latest open source AI models"
+      - "AI startup news"
+    limit: 3
 
-# Tell the AI exactly what you want it to extract.
-task: |
-  Looking for official software release announcements for version 2.0 or higher.
-  Must be released within the next 7 days.
+  - browse:
+      # Just grab this exact URL
+      - url: "https://example.com/news"
+      # Browse the page and return sub-links matching the Regex pattern
+      - url: "https://example.com/events"
+        match: "/events/"
 
-# Where to send the alert when a match is found
-webhook:
-  url: "https://ntfy.sh/mytopic"
-  basic_auth:
-    username: "${WEBHOOK_USER}"
-    password: "${WEBHOOK_PASS}"
+  # 3. Filter out bad links immediately
+  - filter: 
+      drop_if_contains: ["webinar", "online"]
+
+  # 4. Download the webpage HTML
+  - scrape: true
+
+  # 5. Have the minion study the pages
+  - study: true
+    task: |
+      Looking for official software release announcements for version 2.0 or higher.
+      Must be released within the next 7 days.
+
+  # 6. Deliver the results
+  - deliver:
+      - ntfy: "https://ntfy.sh/mytopic"
+        # basic_auth:
+        #   username: "${MY_USERNAME}"
+        #   password: "${MY_PASSWORD}"
+        
+      # - discord: "https://discord.com/api/webhooks/..."
+      
+      # - minion: "my_worker_minion_filename"
 ```
 
 ### 3. CLI Commands
@@ -85,33 +106,111 @@ Use these commands to manage your tasks:
 
 ---
 
-## Features
+## Pipeline Reference Guide
 
-### Smart Spam Protection
-Minion remembers what it has already alerted you about. If an event or news article remains on a homepage for several days, you only receive one notification. 
+Minion allows you to build modular pipelines. You can skip steps, duplicate steps, or change the order.
 
-### Automated Link Clicking
-If a search page only shows titles without full descriptions, you can instruct your minion to automatically click and read specific sub-links.
+### The Trigger
 ```yaml
-sources:
-  - url: "https://example.com/products"
-    follow_links: "/releases/" # Evaluates every link that contains this string
+# Groups: "daily @ 09:00", "weekdays @ 18:00", "weekends @ 12:00"
+# Specific: "mon, wed, fri @ 17:30"
+# Interval: "every 30m", "every 12h"
+# Raw Cron: "*/15 * * * *"
+- schedule: "daily @ 09:00"
 ```
 
-### Web Searching
-Minion can query DuckDuckGo, extract the top organic links, and evaluate them automatically.
+### Data Generators
+You can hardcode specific URLs, instruct the minion to browse homepages for sub-links, or search the web dynamically.
 ```yaml
-web_search:
-  queries:
+- search: 
     - "latest open source AI models"
-  max_results_per_query: 3
+  limit: 3
+
+- browse:
+    - url: "https://example.com/news"
+    - url: "https://example.com/products"
+      match: "/releases/"
 ```
 
-### Time Awareness
+### Fast Filtering (Optional)
+LLM calls cost money. The fast filter does a strict string match. You can use this to drop bad URLs before you scrape them, or on the raw HTML text after you scrape them.
+```yaml
+- filter: 
+    drop_if_contains: ["paywall", "subscribe to read"]
+```
+
+### Scraping (Optional)
+Downloads the raw HTML of the gathered URLs and strips away formatting, scripts, and styling to leave only readable text.
+```yaml
+- scrape: true
+```
+
+### Study
+The core of the engine. The minion reads the data and extracts matches based on your plain-English task. 
 Minions are inherently aware of the current date and time. You can safely use natural instructions like *"Must happen tomorrow"* or *"Drop events in the past"* in your tasks.
+
+By default, the engine outputs structured alerts. You can also use `format: "plain_text"` to output raw text paragraphs (like essays or poems).
+```yaml
+- study: true
+  task: "Find mentions of Apple Inc. Ignore hardware releases."
+```
+
+### Delivery
+Minion uses an agnostic HTTP engine. It will POST the summary to any URL. 
+It natively supports Environment Variable Expansion so you never have to hardcode passwords in your YAML files.
+```yaml
+- deliver:
+    - ntfy: "https://ntfy.sh/mytopic"
+    - discord: "https://discord.com/api/webhooks/123"
+    
+    # Advanced Power User HTTP Requests
+    - http_request: "https://notify.example.com/alerts"
+      method: "POST"
+      headers:
+        X-Priority: "High"
+      payload_template: |
+        {"custom_title": "{{.Title}}", "desc": "{{.Summary}}"}
+      basic_auth:
+        username: "${WEBHOOK_USER}"
+        password: "${WEBHOOK_PASS}"
+```
+
+### Handing Data to Other Minions
+Minions can deliver data directly to other minions. This is useful if you want to split up your work—for example, one minion can gather 50 links from the web, and hand those links off to two different minions that study the text for completely different things.
+
+**The Sending Minion:**
+Use the exact filename of the minion you want to send data to.
+```yaml
+- deliver:
+    - minion: "event_reader"
+```
+
+**The Receiving Minion:**
+The receiving minion doesn't need a schedule or a search block. It uses `receive` to verify exactly which minion is allowed to hand it data.
+```yaml
+name: "Event Reader"
+
+mission:
+  - receive: "My Link Gatherer"
+  
+  - scrape: true
+  - study: true
+    task: "Look for events on these pages."
+```
+
+---
+
+## Smart Caching Architecture
+
+Minion uses a highly robust, two-tier SQLite database to prevent notification spam and save you money on AI API calls.
+
+1. **The AI Firewall (`dropped_urls`):** When the minion studies a page, it decides if the page is fundamentally irrelevant (e.g., a "Cooking Class" when you asked for "Tech Events"). If it is, the minion permanently drops it. The engine logs that URL to a firewall database and will **never** scrape or evaluate it again, saving massive amounts of time on future runs.
+2. **Notification Deduplication (`sent_notifications`):** It generates a cryptographic hash of the specific `Title` the minion found. If it has sent you an alert for that specific Title before, it silently drops it. This allows Minion to accurately track rolling date windows and rolling lists without spamming you!
 
 ---
 
 ## Legal Disclaimer
+
 **Minion is provided for educational and personal productivity purposes.**
-Users are solely responsible for ensuring their configurations comply with the Terms of Service and `robots.txt` policies of the websites they interact with. The creator of this tool assumes no liability for misuse or aggressive scraping.
+
+Users are solely responsible for ensuring their configurations and usage comply with the Terms of Service and `robots.txt` policies of the websites they interact with. The creator of this tool assumes no liability for misuse, aggressive scraping, or any legal disputes arising from the user's configuration of the engine.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,13 +16,12 @@ var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
 
-// FetchAndSanitize GETs a URL, preserves link URLs in text, and strips HTML.
 func FetchAndSanitize(targetURL string) (string, error) {
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -42,12 +42,10 @@ func sanitizeHTML(body io.Reader, baseURLStr string) (string, error) {
 		return "", err
 	}
 
-	// Remove unwanted elements
 	doc.Find("script, style, nav, footer, header, noscript, iframe").Remove()
 
 	base, _ := url.Parse(baseURLStr)
 
-	// Preserve links by appending [Link: URL] to the link text
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		href, exists := s.Attr("href")
 		if exists && base != nil {
@@ -61,10 +59,8 @@ func sanitizeHTML(body io.Reader, baseURLStr string) (string, error) {
 		}
 	})
 
-	// Extract text
 	text := doc.Find("body").Text()
 
-	// Clean up whitespace
 	lines := strings.Split(text, "\n")
 	var cleanLines []string
 	for _, line := range lines {
@@ -77,7 +73,6 @@ func sanitizeHTML(body io.Reader, baseURLStr string) (string, error) {
 	return strings.Join(cleanLines, " "), nil
 }
 
-// ExtractLinks GETs a URL and returns absolute URLs that contain the specified pattern.
 func ExtractLinks(targetURL, pattern string) ([]string, error) {
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
@@ -105,6 +100,12 @@ func ExtractLinks(targetURL, pattern string) ([]string, error) {
 		return nil, err
 	}
 
+	// Compile the regex pattern
+	regex, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern '%s': %w", pattern, err)
+	}
+
 	var links []string
 	seen := make(map[string]bool)
 
@@ -114,7 +115,7 @@ func ExtractLinks(targetURL, pattern string) ([]string, error) {
 			parsedHref, err := url.Parse(href)
 			if err == nil {
 				absURL := baseURL.ResolveReference(parsedHref).String()
-				if strings.HasPrefix(absURL, "http") && strings.Contains(absURL, pattern) && !seen[absURL] {
+				if strings.HasPrefix(absURL, "http") && regex.MatchString(absURL) && !seen[absURL] {
 					seen[absURL] = true
 					links = append(links, absURL)
 				}
@@ -125,7 +126,6 @@ func ExtractLinks(targetURL, pattern string) ([]string, error) {
 	return links, nil
 }
 
-// SearchDuckDuckGo performs a search on duckduckgo HTML and returns up to maxResults URLs.
 func SearchDuckDuckGo(query string, maxResults int) ([]string, error) {
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 	

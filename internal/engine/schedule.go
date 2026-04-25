@@ -1,41 +1,51 @@
-package schedule
+package engine
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/robfig/cron/v3"
+	"minion/internal/config"
 )
+
+// ExtractSchedule finds the schedule string in the mission array
+func ExtractSchedule(m *config.MinionConfig) string {
+	for _, step := range m.Mission {
+		if val, ok := step["schedule"]; ok {
+			return fmt.Sprintf("%v", val)
+		}
+	}
+	return ""
+}
 
 // ParseToCron converts custom schedule strings to a standard cron expression.
 func ParseToCron(schedule string) (string, error) {
+	if schedule == "" {
+		return "", fmt.Errorf("no schedule found")
+	}
 	schedule = strings.ToLower(strings.TrimSpace(schedule))
 
-	// Case 1: Interval Alternative (e.g., "every 30m", "every 12h")
 	if strings.HasPrefix(schedule, "every ") {
 		duration := strings.TrimSpace(strings.TrimPrefix(schedule, "every"))
 		return "@every " + duration, nil
 	}
 
-	// Case 2: Custom @ Syntax
 	if strings.Contains(schedule, "@") {
 		parts := strings.Split(schedule, "@")
 		if len(parts) != 2 {
-			return "", fmt.Errorf("invalid schedule format, expected 'days @ time', got: %s", schedule)
+			return "", fmt.Errorf("invalid schedule format, expected 'days @ time'")
 		}
 
 		daysPart := strings.TrimSpace(parts[0])
 		timePart := strings.TrimSpace(parts[1])
 
-		// Parse Time
 		timeParts := strings.Split(timePart, ":")
 		if len(timeParts) != 2 {
-			return "", fmt.Errorf("invalid time format, expected HH:MM, got: %s", timePart)
+			return "", fmt.Errorf("invalid time format, expected HH:MM")
 		}
 		hour := timeParts[0]
 		minute := timeParts[1]
 
-		// Parse Days
 		if daysPart == "daily" {
 			return fmt.Sprintf("%s %s * * *", minute, hour), nil
 		}
@@ -47,13 +57,7 @@ func ParseToCron(schedule string) (string, error) {
 		}
 
 		dayMap := map[string]string{
-			"sun": "0",
-			"mon": "1",
-			"tue": "2",
-			"wed": "3",
-			"thu": "4",
-			"fri": "5",
-			"sat": "6",
+			"sun": "0", "mon": "1", "tue": "2", "wed": "3", "thu": "4", "fri": "5", "sat": "6",
 		}
 
 		rawDays := strings.Split(daysPart, ",")
@@ -66,19 +70,12 @@ func ParseToCron(schedule string) (string, error) {
 				return "", fmt.Errorf("invalid day abbreviation: %s", d)
 			}
 		}
-
-		if len(cronDays) == 0 {
-			return "", fmt.Errorf("no valid days provided")
-		}
-
 		return fmt.Sprintf("%s %s * * %s", minute, hour, strings.Join(cronDays, ",")), nil
 	}
 
-	// Case 3: Fallback to Raw Cron Validation
-	// We use the same parser setup the rest of the app uses to validate it
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	if _, err := parser.Parse(schedule); err != nil {
-		return "", fmt.Errorf("unrecognized format or invalid cron string: %v", err)
+		return "", fmt.Errorf("unrecognized format or invalid cron string")
 	}
 
 	return schedule, nil
