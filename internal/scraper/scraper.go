@@ -1,6 +1,8 @@
 package scraper
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,33 +18,33 @@ var httpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
 
-func FetchAndSanitize(targetURL string) (string, error) {
+func FetchAndSanitize(targetURL string) (string, string, error) {
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("http get failed: %w", err)
+		return "", "", fmt.Errorf("http get failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("status code error: %d %s", resp.StatusCode, resp.Status)
+		return "", "", fmt.Errorf("status code error: %d %s", resp.StatusCode, resp.Status)
 	}
 
 	return sanitizeHTML(resp.Body, targetURL)
 }
 
-func sanitizeHTML(body io.Reader, baseURLStr string) (string, error) {
+func sanitizeHTML(body io.Reader, baseURLStr string) (string, string, error) {
 	doc, err := goquery.NewDocumentFromReader(body)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	doc.Find("script, style, nav, footer, header, noscript, iframe").Remove()
+	doc.Find("script, style, nav, footer, header, noscript, iframe, aside").Remove()
 
 	base, _ := url.Parse(baseURLStr)
 
@@ -70,7 +72,37 @@ func sanitizeHTML(body io.Reader, baseURLStr string) (string, error) {
 		}
 	}
 
-	return strings.Join(cleanLines, " "), nil
+	rawText := strings.Join(cleanLines, " ")
+	hash := GenerateContentHash(rawText)
+
+	return rawText, hash, nil
+}
+
+func GenerateContentHash(text string) string {
+	lower := strings.ToLower(text)
+
+	// 1. Relative Time (The Ticking Clocks)
+	reRelativeTime := regexp.MustCompile(`(?i)\b\d+\s*(secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|weeks?|months?|years?)\s*ago\b`)
+	lower = reRelativeTime.ReplaceAllString(lower, "<TIME_AGO>")
+
+	// 2. Engagement Metrics
+	reMetrics := regexp.MustCompile(`(?i)\b\d+\s*(views?|comments?|likes?|replies|retweets|shares)\b`)
+	lower = reMetrics.ReplaceAllString(lower, "<METRIC>")
+
+	// 3. Parenthetical Counters (e.g., (45))
+	reParenCount := regexp.MustCompile(`\(\s*\d+\s*\)`)
+	lower = reParenCount.ReplaceAllString(lower, "<COUNT>")
+
+	// 4. Dynamic Updates
+	reUpdated := regexp.MustCompile(`(?i)(?:last\s*)?updated\s*(?:today|yesterday|now|\d+)`)
+	lower = reUpdated.ReplaceAllString(lower, "<UPDATED>")
+
+	// 5. Collapse Whitespace
+	reWhitespace := regexp.MustCompile(`\s+`)
+	final := reWhitespace.ReplaceAllString(lower, " ")
+
+	hash := sha256.Sum256([]byte(strings.TrimSpace(final)))
+	return hex.EncodeToString(hash[:])
 }
 
 func ExtractLinks(targetURL, pattern string) ([]string, error) {

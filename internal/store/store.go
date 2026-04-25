@@ -1,9 +1,7 @@
 package store
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -33,11 +31,12 @@ func InitStore(dbPath string) (*Store, error) {
 	}
 
 	createTableQuery := `
-	CREATE TABLE IF NOT EXISTS sent_notifications (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		hash_id TEXT NOT NULL UNIQUE,
-		minion_name TEXT NOT NULL,
-		processed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	CREATE TABLE IF NOT EXISTS scraped_pages (
+		url TEXT NOT NULL,
+		minion_filename TEXT NOT NULL,
+		content_hash TEXT NOT NULL,
+		last_scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (url, minion_filename)
 	);
 	CREATE TABLE IF NOT EXISTS dropped_urls (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,46 +58,48 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-func GenerateHash(minionName, url, title string) string {
-	data := fmt.Sprintf("%s|%s|%s", minionName, url, title)
-	hash := sha256.Sum256([]byte(data))
-	return hex.EncodeToString(hash[:])
+func (s *Store) GetPageHash(url, minionFilename string) (string, error) {
+	var hash string
+	err := s.db.QueryRow("SELECT content_hash FROM scraped_pages WHERE url = ? AND minion_filename = ?", url, minionFilename).Scan(&hash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return hash, nil
 }
 
-func (s *Store) HasNotified(hashID string) (bool, error) {
+func (s *Store) UpdatePageHash(url, minionFilename, hash string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO scraped_pages (url, minion_filename, content_hash, last_scraped_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(url, minion_filename) 
+		DO UPDATE SET content_hash = excluded.content_hash, last_scraped_at = excluded.last_scraped_at`,
+		url, minionFilename, hash, time.Now())
+	return err
+}
+
+func (s *Store) IsDropped(url, minionFilename string) (bool, error) {
 	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM sent_notifications WHERE hash_id = ?", hashID).Scan(&count)
+	err := s.db.QueryRow("SELECT COUNT(*) FROM dropped_urls WHERE url = ? AND minion_name = ?", url, minionFilename).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
 }
 
-func (s *Store) MarkNotified(hashID, minionName string) error {
-	_, err := s.db.Exec("INSERT OR IGNORE INTO sent_notifications (hash_id, minion_name, processed_at) VALUES (?, ?, ?)", hashID, minionName, time.Now())
+func (s *Store) MarkDropped(url, minionFilename string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO dropped_urls (url, minion_name, dropped_at) VALUES (?, ?, ?)", url, minionFilename, time.Now())
 	return err
 }
 
-func (s *Store) IsDropped(url, minionName string) (bool, error) {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM dropped_urls WHERE url = ? AND minion_name = ?", url, minionName).Scan(&count)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-func (s *Store) MarkDropped(url, minionName string) error {
-	_, err := s.db.Exec("INSERT OR IGNORE INTO dropped_urls (url, minion_name, dropped_at) VALUES (?, ?, ?)", url, minionName, time.Now())
-	return err
-}
-
-func (s *Store) ClearMinionState(minionName string) (int64, error) {
-	res1, err := s.db.Exec("DELETE FROM sent_notifications WHERE minion_name = ?", minionName)
+func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
+	res1, err := s.db.Exec("DELETE FROM scraped_pages WHERE minion_filename = ?", minionFilename)
 	if err != nil {
 		return 0, err
 	}
-	res2, err := s.db.Exec("DELETE FROM dropped_urls WHERE minion_name = ?", minionName)
+	res2, err := s.db.Exec("DELETE FROM dropped_urls WHERE minion_name = ?", minionFilename)
 	if err != nil {
 		return 0, err
 	}
@@ -109,7 +110,7 @@ func (s *Store) ClearMinionState(minionName string) (int64, error) {
 }
 
 func (s *Store) ClearAllState() (int64, error) {
-	res1, err := s.db.Exec("DELETE FROM sent_notifications")
+	res1, err := s.db.Exec("DELETE FROM scraped_pages")
 	if err != nil {
 		return 0, err
 	}

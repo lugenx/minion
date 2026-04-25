@@ -209,7 +209,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			for _, m := range matchArray {
 				if m.URL == "" { continue }
 
-				isDropped, err := runCtx.Store.IsDropped(m.URL, minion.Name)
+				isDropped, err := runCtx.Store.IsDropped(m.URL, minion.Filename)
 				if err == nil && isDropped {
 					step("CACHED", fmt.Sprintf("Skipping dropped URL: %s", m.URL), false)
 					continue
@@ -221,12 +221,20 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 
 				step("SCRAPE", m.URL, false)
-				text, err := scraper.FetchAndSanitize(m.URL)
+				text, hash, err := scraper.FetchAndSanitize(m.URL)
 				if err != nil {
 					step("SCRAPE ERROR", err.Error(), true)
 					continue
 				}
+
+				savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
+				if savedHash == hash {
+					step("CACHED", "Page content unchanged, skipping LLM", false)
+					continue
+				}
+
 				m.Text = text
+				m.TempHash = hash
 				nextArray = append(nextArray, m)
 			}
 			matchArray = nextArray
@@ -261,17 +269,18 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 				if res.CacheAction == "permanent_drop" {
 					step("CACHE", fmt.Sprintf("AI marked %s for permanent drop", m.URL), false)
-					_ = runCtx.Store.MarkDropped(m.URL, minion.Name)
+					_ = runCtx.Store.MarkDropped(m.URL, minion.Filename)
 				} else if res.CacheAction == "re_evaluate_later" {
 					step("KEEP", fmt.Sprintf("AI marked %s for re-evaluation later", m.URL), false)
 				}
 
 				for _, aiMatch := range res.Matches {
 					nextArray = append(nextArray, types.Item{
-						URL:     aiMatch.URL,
-						Title:   aiMatch.Title,
-						Summary: aiMatch.Summary,
-						Text:    m.Text, // Preserve text for downstream filters
+						URL:      aiMatch.URL,
+						Title:    aiMatch.Title,
+						Summary:  aiMatch.Summary,
+						Text:     m.Text, // Preserve text for downstream filters
+						TempHash: m.TempHash,
 					})
 				}
 			}
@@ -291,14 +300,10 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 			}
 
+			// We will track which pages we successfully delivered items for, so we can save their hash
+			pagesDelivered := make(map[string]string)
+
 			for _, m := range matchArray {
-				// Deduplicate per item
-				hashID := store.GenerateHash(minion.Name, m.URL, m.Title)
-				notified, err := runCtx.Store.HasNotified(hashID)
-				if err != nil || notified {
-					continue
-				}
-				
 				step("ITEM", fmt.Sprintf("%s: %s", m.Title, m.Summary), false)
 
 				for _, t := range targets {
@@ -310,7 +315,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 							yaml.Unmarshal(b, &auth)
 						}
 						
-						err = delivery.SendNtfy(urlStr, auth, minion.Name, &m)
+						err := delivery.SendNtfy(urlStr, auth, minion.Name, &m)
 						if err != nil {
 							step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
 						} else {
@@ -320,7 +325,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 					if discordURL, ok := t["discord"]; ok {
 						urlStr := fmt.Sprintf("%v", discordURL)
-						err = delivery.SendDiscord(urlStr, minion.Name, &m)
+						err := delivery.SendDiscord(urlStr, minion.Name, &m)
 						if err != nil {
 							step("DELIVERY ERROR", fmt.Sprintf("discord: %v", err), true)
 						} else {
@@ -351,7 +356,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 							wbConfig.BasicAuth = &ba
 						}
 
-						err = delivery.SendHTTPRequest(wbConfig, &m)
+						err := delivery.SendHTTPRequest(wbConfig, &m)
 						if err != nil {
 							step("DELIVERY ERROR", fmt.Sprintf("http_request: %v", err), true)
 						} else {
@@ -368,7 +373,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 							step("CHAIN ERROR", fmt.Sprintf("Failed to load target minion '%s': %v", targetMinionName, err), true)
 						} else {
 							// Recursively process the item through the target minion's pipeline
-							err = ProcessItem(ctx, targetMinion, &m, runCtx, false, minion.Name)
+							err = ProcessItem(ctx, targetMinion, &m, runCtx, false, minion.Filename)
 							if err != nil {
 								step("CHAIN ERROR", fmt.Sprintf("Target minion '%s' failed: %v", targetMinionName, err), true)
 							}
@@ -376,8 +381,15 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					}
 				}
 				
-				// Mark as successfully processed so we don't send it again
-				_ = runCtx.Store.MarkNotified(hashID, minion.Name)
+				// Keep track of the URL and Hash so we can save it after the loop
+				if m.URL != "" && m.TempHash != "" {
+					pagesDelivered[m.URL] = m.TempHash
+				}
+			}
+
+			// After successfully delivering the items for the scraped pages, update their hash
+			for url, hash := range pagesDelivered {
+				_ = runCtx.Store.UpdatePageHash(url, minion.Filename, hash)
 			}
 			continue
 		}
