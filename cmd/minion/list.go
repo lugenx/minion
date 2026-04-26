@@ -143,10 +143,10 @@ func runList() {
 		}
 	}
 
-	nameWidth += 3
-	stateWidth += 3
-	schedWidth += 3
-	nextRunWidth += 3
+	nameWidth += 4
+	stateWidth += 4
+	schedWidth += 4
+	nextRunWidth += 4
 
 	pad := func(s string, width int) string {
 		padding := width - len(s)
@@ -187,12 +187,12 @@ func runList() {
 		if !isConfiguredEnabled {
 			stateText = "Disabled"
 			stateRender = idleStyle.Render(stateText)
-		} else if isActive {
-			stateText = "Running"
-			stateRender = executingStyle.Render(stateText)
 		} else if !daemonRunning {
 			stateText = "Stopped"
 			stateRender = stoppedStyle.Render(stateText)
+		} else if isActive {
+			stateText = "Running"
+			stateRender = executingStyle.Render(stateText)
 		} else {
 			stateText = "Scheduled"
 			stateRender = scheduledStyle.Render(stateText)
