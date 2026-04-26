@@ -75,13 +75,15 @@ mission:
       drop_if_contains: ["webinar", "online"]
 
   # 4. Download the webpage HTML
-  - scrape: true
+  - scrape:
+      timeout: 15
+      delay: 2
 
   # 5. Have the minion study the pages
-  - study: true
-    task: |
-      Looking for official software release announcements for version 2.0 or higher.
-      Must be released within the next 7 days.
+  - study:
+      task: |
+        Looking for official software release announcements for version 2.0 or higher.
+        Must be released within the next 7 days.
 
   # 6. Deliver the results
   - deliver:
@@ -141,9 +143,11 @@ LLM calls cost money. The fast filter does a strict string match. You can use th
 ```
 
 ### Scraping (Optional)
-Downloads the raw HTML of the gathered URLs and strips away formatting, scripts, and styling to leave only readable text.
+Downloads the raw HTML of the gathered URLs and strips away formatting, scripts, and styling to leave only readable text. You can optionally set a timeout and a delay between requests.
 ```yaml
-- scrape: true
+- scrape:
+    timeout: 15
+    delay: 2
 ```
 
 ### Study
@@ -152,8 +156,8 @@ Minions are inherently aware of the current date and time. You can safely use na
 
 By default, the engine outputs structured alerts. You can also use `format: "plain_text"` to output raw text paragraphs (like essays or poems).
 ```yaml
-- study: true
-  task: "Find mentions of Apple Inc. Ignore hardware releases."
+- study:
+    task: "Find mentions of Apple Inc. Ignore hardware releases."
 ```
 
 ### Delivery
@@ -222,9 +226,9 @@ name: "Event Reader"
 mission:
   - receive: "My Link Gatherer"
   
-  - scrape: true
-  - study: true
-    task: "Look for events on these pages."
+  - scrape:
+  - study:
+      task: "Look for events on these pages."
 ```
 
 ---

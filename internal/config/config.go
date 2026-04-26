@@ -121,14 +121,16 @@ mission:
       drop_if_contains: ["webinar", "online only"]
 
   # Scrape: Download the actual HTML text of the clean links
-  - scrape: true
+  - scrape:
+      timeout: 15
+      delay: 0
 
   # Study: Tell the minion exactly what you are looking for
-  - study: true
-    task: |
-      Looking for tech events or any nerdy events.
-      Must occur on Tuesday/Wednesday after 17:00, or Saturday after 15:00.
-      Must be in-person in New York.
+  - study:
+      task: |
+        Looking for tech events or any nerdy events.
+        Must occur on Tuesday/Wednesday after 17:00, or Saturday after 15:00.
+        Must be in-person in New York.
 
   # --- 4. DELIVERY ---
   # Send the results anywhere you want. You can define multiple targets!

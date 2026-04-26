@@ -120,7 +120,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 					time.Sleep(time.Duration(rand.Intn(3)+1) * time.Second)
 				}
 				step("SEARCH", fmt.Sprintf("Query: %s", q), false)
-				urls, err := scraper.SearchDuckDuckGo(q, limit)
+				urls, err := scraper.SearchDuckDuckGo(q, limit, 15)
 				if err != nil {
 					runCtx.Stats.Errors++
 					step("SEARCH ERROR", err.Error(), true)
@@ -152,7 +152,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 							step("BROWSE", fmt.Sprintf("Added %s", u), false)
 						} else {
 							step("BROWSE", fmt.Sprintf("Scanning %s for regex '%s'", u, matchPattern), false)
-							links, err := scraper.ExtractLinks(u, matchPattern)
+							links, err := scraper.ExtractLinks(u, matchPattern, 15)
 							if err != nil {
 								runCtx.Stats.Errors++
 								step("BROWSE ERROR", err.Error(), true)
@@ -274,9 +274,11 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 		if val, ok := action["filter"]; ok {
 			var dropWords []string
-			if dw, ok := action["drop_if_contains"].([]interface{}); ok {
-				for _, w := range dw {
-					dropWords = append(dropWords, strings.ToLower(fmt.Sprintf("%v", w)))
+			if filterMap, ok := val.(map[string]interface{}); ok {
+				if dw, ok := filterMap["drop_if_contains"].([]interface{}); ok {
+					for _, w := range dw {
+						dropWords = append(dropWords, strings.ToLower(fmt.Sprintf("%v", w)))
+					}
 				}
 			} else if dw, ok := val.([]interface{}); ok {
 				// Allow simple array syntax: filter: ["paywall"]
@@ -305,7 +307,18 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			continue
 		}
 
-		if _, ok := action["scrape"]; ok {
+		if scrapeVal, ok := action["scrape"]; ok {
+			timeoutSec := 15
+			delaySec := 0
+			if scrapeMap, ok := scrapeVal.(map[string]interface{}); ok {
+				if t, ok := scrapeMap["timeout"].(int); ok {
+					timeoutSec = t
+				}
+				if d, ok := scrapeMap["delay"].(int); ok {
+					delaySec = d
+				}
+			}
+
 			var nextArray []types.Item
 			for _, m := range matchArray {
 				if m.URL == "" { continue }
@@ -336,10 +349,12 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				if requireJitter {
 					time.Sleep(time.Duration(rand.Intn(2)+1) * time.Second)
 					requireJitter = false // only jitter once per URL stream
+				} else if delaySec > 0 {
+					time.Sleep(time.Duration(delaySec) * time.Second)
 				}
 
 				step("SCRAPE", m.URL, false)
-				text, hash, err := scraper.FetchAndSanitize(m.URL)
+				text, hash, err := scraper.FetchAndSanitize(m.URL, timeoutSec)
 				if err != nil {
 					runCtx.Stats.Errors++
 					step("SCRAPE ERROR", err.Error(), true)
@@ -368,11 +383,17 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			continue
 		}
 
-		if _, ok := action["study"]; ok {
-			task, _ := action["task"].(string)
-			format, _ := action["format"].(string)
-			if format == "" {
-				format = "json_list"
+		if studyVal, ok := action["study"]; ok {
+			task := ""
+			format := "json_list"
+			
+			if studyMap, ok := studyVal.(map[string]interface{}); ok {
+				if t, ok := studyMap["task"].(string); ok {
+					task = t
+				}
+				if f, ok := studyMap["format"].(string); ok {
+					format = f
+				}
 			}
 
 			var nextArray []types.Item

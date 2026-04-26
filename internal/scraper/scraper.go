@@ -14,18 +14,24 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-var httpClient = &http.Client{
-	Timeout: 15 * time.Second,
+func getClient(timeoutSec int) *http.Client {
+	if timeoutSec <= 0 {
+		timeoutSec = 15
+	}
+	return &http.Client{
+		Timeout: time.Duration(timeoutSec) * time.Second,
+	}
 }
 
-func FetchAndSanitize(targetURL string) (string, string, error) {
+func FetchAndSanitize(targetURL string, timeoutSec int) (string, string, error) {
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
 		return "", "", err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	resp, err := httpClient.Do(req)
+	client := getClient(timeoutSec)
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("http get failed: %w", err)
 	}
@@ -125,14 +131,15 @@ func GenerateContentHash(text string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func ExtractLinks(targetURL, pattern string) ([]string, error) {
+func ExtractLinks(targetURL, pattern string, timeoutSec int) ([]string, error) {
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-	resp, err := httpClient.Do(req)
+	client := getClient(timeoutSec)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("http get failed: %w", err)
 	}
@@ -178,7 +185,7 @@ func ExtractLinks(targetURL, pattern string) ([]string, error) {
 	return links, nil
 }
 
-func SearchDuckDuckGo(query string, maxResults int) ([]string, error) {
+func SearchDuckDuckGo(query string, maxResults int, timeoutSec int) ([]string, error) {
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 	
 	req, err := http.NewRequest("GET", searchURL, nil)
@@ -187,7 +194,8 @@ func SearchDuckDuckGo(query string, maxResults int) ([]string, error) {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-	resp, err := httpClient.Do(req)
+	client := getClient(timeoutSec)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
