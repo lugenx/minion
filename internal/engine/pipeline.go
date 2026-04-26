@@ -156,7 +156,17 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 	}
 
 	// 2. THE LINEAR STREAM (Process one by one)
-	for i, u := range startingURLs {
+	// Deduplicate startingURLs to prevent processing the same URL multiple times in one run
+	var uniqueURLs []string
+	seenURLs := make(map[string]bool)
+	for _, u := range startingURLs {
+		if u != "" && !seenURLs[u] {
+			seenURLs[u] = true
+			uniqueURLs = append(uniqueURLs, u)
+		}
+	}
+
+	for i, u := range uniqueURLs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -289,6 +299,23 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					continue
 				}
 
+				if m.Text != "" && m.TempHash != "" {
+					step("SCRAPE", fmt.Sprintf("Using passed content for %s", m.URL), false)
+					
+					// Even if passed down, check if the hash has already been processed by *this* minion
+					savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
+					if savedHash == m.TempHash {
+						runCtx.Stats.PagesCached++
+						step("CACHED", "Page content unchanged, skipping LLM", false)
+						continue
+					}
+					
+					_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, m.TempHash)
+					
+					nextArray = append(nextArray, m)
+					continue
+				}
+
 				if requireJitter {
 					time.Sleep(time.Duration(rand.Intn(2)+1) * time.Second)
 					requireJitter = false // only jitter once per URL stream
@@ -310,6 +337,10 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					step("CACHED", "Page content unchanged, skipping LLM", false)
 					continue
 				}
+
+				// Immedately save the new hash so we don't scrape this again, 
+				// even if the LLM drops it or finds 0 matches downstream.
+				_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, hash)
 
 				m.Text = text
 				m.TempHash = hash
@@ -396,8 +427,6 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 			runCtx.OnStep(s, details, isError)
 		}
 	}
-
-	pagesDelivered := make(map[string]string)
 
 	for _, m := range matchArray {
 		if saveHash {
@@ -486,16 +515,6 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 					}
 				}
 			}
-		}
-		
-		if m.URL != "" && m.TempHash != "" {
-			pagesDelivered[m.URL] = m.TempHash
-		}
-	}
-
-	if saveHash {
-		for url, hash := range pagesDelivered {
-			_ = runCtx.Store.UpdatePageHash(url, minion.Filename, hash)
 		}
 	}
 }
