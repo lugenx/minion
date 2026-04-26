@@ -51,8 +51,8 @@ func (s *Stats) GenerateReport(minionName string) string {
 			"- Scraped:        %d pages\n"+
 			"    - Cached:     %d pages\n"+
 			"- Studied:        %d pages\n"+
-			"    - Discarded:  %d pages (Irrelevant)\n"+
-			"    - Skipped:    %d pages (No matches)\n"+
+			"    - Discarded:  %d pages\n"+
+			"    - Skipped:    %d pages\n"+
 			"    - Found:      %d items\n"+
 			"- Delivered:      %d items",
 		minionName,
