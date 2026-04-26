@@ -407,12 +407,25 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				runCtx.Stats.ItemsFound += len(res.Matches)
 
 				for _, aiMatch := range res.Matches {
+					itemURL := aiMatch.URL
+					if itemURL == "" {
+						itemURL = m.URL // Inherit the parent's URL if the AI left it blank
+					}
+
+					inheritedText := ""
+					inheritedHash := ""
+					// ONLY pass the HTML down the chain if the URL is exactly the same!
+					if itemURL == m.URL {
+						inheritedText = m.Text
+						inheritedHash = m.TempHash
+					}
+
 					nextArray = append(nextArray, types.Item{
-						URL:      aiMatch.URL,
+						URL:      itemURL,
 						Title:    aiMatch.Title,
 						Summary:  aiMatch.Summary,
-						Text:     m.Text, // Preserve text for downstream filters
-						TempHash: m.TempHash,
+						Text:     inheritedText,
+						TempHash: inheritedHash,
 					})
 				}
 			}
