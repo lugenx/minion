@@ -183,13 +183,13 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		}
 	}
 
-	for i, u := range uniqueURLs {
+	for _, u := range uniqueURLs {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		item := &types.Item{URL: u}
-		err := ProcessItem(ctx, minion, item, runCtx, i > 0, "cron")
+		err := ProcessItem(ctx, minion, item, runCtx, "cron")
 		if err != nil {
 			runCtx.Stats.Errors++
 			step("ERROR", fmt.Sprintf("Failed processing %s: %v", u, err), true)
@@ -227,7 +227,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 }
 
 // ProcessItem pushes a single item through the transformer and delivery steps.
-func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.Item, runCtx *RunContext, requireJitter bool, parentName string) error {
+func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.Item, runCtx *RunContext, parentName string) error {
 	step := func(s, details string, isError bool) {
 		if runCtx.OnStep != nil {
 			runCtx.OnStep(s, details, isError)
@@ -309,7 +309,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 		if scrapeVal, ok := action["scrape"]; ok {
 			timeoutSec := 15
-			delaySec := 0
+			delaySec := 2 // Default to 2 seconds of max jitter protection
 			if scrapeMap, ok := scrapeVal.(map[string]interface{}); ok {
 				if t, ok := scrapeMap["timeout"].(int); ok {
 					timeoutSec = t
@@ -346,11 +346,12 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					continue
 				}
 
-				if requireJitter {
-					time.Sleep(time.Duration(rand.Intn(2)+1) * time.Second)
-					requireJitter = false // only jitter once per URL stream
-				} else if delaySec > 0 {
-					time.Sleep(time.Duration(delaySec) * time.Second)
+				if delaySec > 0 {
+					// Add random jitter to prevent bot detection.
+					// If delay is 2, rand is 0-1, so sleep is 1-2s.
+					// If delay is 5, rand is 0-4, so sleep is 1-5s.
+					jitter := rand.Intn(delaySec) + 1
+					time.Sleep(time.Duration(jitter) * time.Second)
 				}
 
 				step("SCRAPE", m.URL, false)
@@ -559,7 +560,7 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 					runCtx.Stats.Errors++
 					step("CHAIN ERROR", fmt.Sprintf("Failed to load target minion '%s': %v", targetMinionName, err), true)
 				} else {
-					err = ProcessItem(ctx, targetMinion, &m, runCtx, false, minion.Filename)
+					err = ProcessItem(ctx, targetMinion, &m, runCtx, minion.Filename)
 					if err != nil {
 						runCtx.Stats.Errors++
 						step("CHAIN ERROR", fmt.Sprintf("Target minion '%s' failed: %v", targetMinionName, err), true)

@@ -143,11 +143,11 @@ LLM calls cost money. The fast filter does a strict string match. You can use th
 ```
 
 ### Scraping (Optional)
-Downloads the raw HTML of the gathered URLs and strips away formatting, scripts, and styling to leave only readable text. You can optionally set a timeout and a delay between requests.
+Downloads the raw HTML of the gathered URLs and strips away formatting, scripts, and styling to leave only readable text. You can optionally set a timeout and a maximum delay between requests to avoid bot detection.
 ```yaml
 - scrape:
     timeout: 15
-    delay: 2
+    delay: 2 # Minion will pause randomly for 1 to 2 seconds before scraping
 ```
 
 ### Study

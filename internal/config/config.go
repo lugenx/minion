@@ -123,7 +123,7 @@ mission:
   # Scrape: Download the actual HTML text of the clean links
   - scrape:
       timeout: 15
-      delay: 0
+      delay: 2 # Max seconds to pause before scraping to avoid bot detection
 
   # Study: Tell the minion exactly what you are looking for
   - study:
