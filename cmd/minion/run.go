@@ -213,9 +213,9 @@ func runDaemon() {
 					switch step {
 					case "DONE", "MATCH", "WEBHOOK", "ITEM":
 						color = okColor 
-					case "CACHED", "DEDUPE", "FILTER":
+					case "CACHED", "DEDUPE", "FILTERED", "SKIPPED":
 						color = warnColor 
-					case "CACHE", "KEEP", "NO MATCH":
+					case "FIREWALL", "DISCARDED", "NO MATCH":
 						color = infoColor 
 					case "ERROR", "SEARCH ERROR", "BROWSE ERROR", "SCRAPE ERROR", "STUDY ERROR", "STORE ERROR", "WEBHOOK ERROR":
 						color = errColor 
@@ -242,10 +242,13 @@ func runDaemon() {
 			if err := engine.RunMission(ctx, currentMinion, runCtx); err != nil {
 				logMessage("ERROR", currentMinion.Name, fmt.Sprintf("Failed: %v", err))
 			} else {
-				statsMsg := fmt.Sprintf("Finished in %s (Scraped: %d, Cached: %d, Found: %d, Delivered: %d, Errors: %d)",
+				statsMsg := fmt.Sprintf("Finished in %s (Scraped: %d, Cached: %d, Studied: %d, Discarded: %d, Skipped: %d, Found: %d, Delivered: %d, Errors: %d)",
 					runCtx.Stats.Duration().Round(time.Millisecond*100),
 					runCtx.Stats.PagesScraped,
 					runCtx.Stats.PagesCached,
+					runCtx.Stats.PagesStudied,
+					runCtx.Stats.PagesDiscarded,
+					runCtx.Stats.PagesSkipped,
 					runCtx.Stats.ItemsFound,
 					runCtx.Stats.ItemsDelivered,
 					runCtx.Stats.Errors,
@@ -258,7 +261,7 @@ func runDaemon() {
 					Border(lipgloss.RoundedBorder()).
 					BorderForeground(lipgloss.Color("39")).
 					Padding(1, 4)
-				fmt.Fprintln(minionLogFile, boxStyle.Render(runCtx.Stats.GenerateReport()))
+				fmt.Fprintln(minionLogFile, boxStyle.Render(runCtx.Stats.GenerateReport(currentMinion.Name)))
 				fmt.Fprintln(minionLogFile)
 			}
 		})

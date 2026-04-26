@@ -73,10 +73,10 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
 	systemPrompt += "- Extract ALL independent items from the text that fulfill the user's task.\n"
 	systemPrompt += "- If the text provides a specific [Link: URL] for the item, extract it into the 'url' field. Otherwise, leave it blank.\n"
 	systemPrompt += "- If no items match the task, return an empty array for matches.\n"
-	systemPrompt += "- CACHING: Return 'permanent_drop' if the page is off-topic, junk, or old. Return 're_evaluate_later' for lists that update frequently, or for relevant pages that simply fail a dynamic rule (like how \"next 5 days\" or prices change every day) so we can check them again later.\n"
+	systemPrompt += "- CACHING: Return 'discard' if the page is permanently off-topic, junk, or old. Return 'skip' for lists that update frequently, or for relevant pages that simply fail a dynamic rule (like how \"next 5 days\" or prices change every day) so we can check them again later.\n"
 	systemPrompt += "- You MUST output ONLY a valid JSON object matching this schema exactly:\n"
 	systemPrompt += `{
-  "cache_action": "permanent_drop" | "re_evaluate_later",
+  "cache_action": "discard" | "skip",
   "matches": [
     {
       "title": "Name or title of the matched item/event",

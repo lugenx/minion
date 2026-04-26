@@ -38,11 +38,11 @@ func InitStore(dbPath string) (*Store, error) {
 		last_scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (url, minion_filename)
 	);
-	CREATE TABLE IF NOT EXISTS dropped_urls (
+	CREATE TABLE IF NOT EXISTS discarded_urls (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		url TEXT NOT NULL,
 		minion_name TEXT NOT NULL,
-		dropped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		discarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(url, minion_name)
 	);
 	CREATE TABLE IF NOT EXISTS active_jobs (
@@ -84,17 +84,17 @@ func (s *Store) UpdatePageHash(url, minionFilename, hash string) error {
 	return err
 }
 
-func (s *Store) IsDropped(url, minionFilename string) (bool, error) {
+func (s *Store) IsDiscarded(url, minionFilename string) (bool, error) {
 	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM dropped_urls WHERE url = ? AND minion_name = ?", url, minionFilename).Scan(&count)
+	err := s.db.QueryRow("SELECT COUNT(*) FROM discarded_urls WHERE url = ? AND minion_name = ?", url, minionFilename).Scan(&count)
 	if err != nil {
 		return false, err
 	}
 	return count > 0, nil
 }
 
-func (s *Store) MarkDropped(url, minionFilename string) error {
-	_, err := s.db.Exec("INSERT OR IGNORE INTO dropped_urls (url, minion_name, dropped_at) VALUES (?, ?, ?)", url, minionFilename, time.Now())
+func (s *Store) MarkDiscarded(url, minionFilename string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO discarded_urls (url, minion_name, discarded_at) VALUES (?, ?, ?)", url, minionFilename, time.Now())
 	return err
 }
 
@@ -130,7 +130,7 @@ func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	res2, err := s.db.Exec("DELETE FROM dropped_urls WHERE minion_name = ?", minionFilename)
+	res2, err := s.db.Exec("DELETE FROM discarded_urls WHERE minion_name = ?", minionFilename)
 	if err != nil {
 		return 0, err
 	}
@@ -145,7 +145,7 @@ func (s *Store) ClearAllState() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	res2, err := s.db.Exec("DELETE FROM dropped_urls")
+	res2, err := s.db.Exec("DELETE FROM discarded_urls")
 	if err != nil {
 		return 0, err
 	}

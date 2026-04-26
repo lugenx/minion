@@ -20,9 +20,13 @@ import (
 type Stats struct {
 	StartTime      time.Time
 	EndTime        time.Time
+	SearchLinks    int
+	BrowseLinks    int
 	PagesScraped   int
 	PagesCached    int
-	LLMEvals       int
+	PagesStudied   int
+	PagesDiscarded int
+	PagesSkipped   int
 	ItemsFound     int
 	ItemsDelivered int
 	Errors         int
@@ -35,22 +39,31 @@ func (s *Stats) Duration() time.Duration {
 	return s.EndTime.Sub(s.StartTime)
 }
 
-func (s *Stats) GenerateReport() string {
+func (s *Stats) GenerateReport(minionName string) string {
 	return fmt.Sprintf(
-		"Start: %s\n"+
-			"End:   %s\n"+
-			"Time:  %s\n\n"+
-			"Pages Fetched:   %d\n"+
-			"Pages Cached:    %d\n"+
-			"LLM Evaluations: %d\n"+
-			"Items Found:     %d\n"+
-			"Items Delivered: %d\n"+
-			"Errors:          %d",
+		"Mission Report: %s\n\n"+
+			"Start:  %s\n"+
+			"End:    %s\n"+
+			"Time:   %s\n"+
+			"Errors: %d\n\n"+
+			"- Search Results: %d links\n"+
+			"- Browse Results: %d links\n"+
+			"- Scraped:        %d pages\n"+
+			"    - Cached:     %d pages\n"+
+			"- Studied:        %d pages\n"+
+			"    - Discarded:  %d pages (Irrelevant)\n"+
+			"    - Skipped:    %d pages (No matches)\n"+
+			"    - Found:      %d items\n"+
+			"- Delivered:      %d items",
+		minionName,
 		s.StartTime.Format("2006-01-02 15:04:05"),
 		s.EndTime.Format("15:04:05"),
 		s.Duration().Round(time.Millisecond*100),
-		s.PagesScraped, s.PagesCached, s.LLMEvals,
-		s.ItemsFound, s.ItemsDelivered, s.Errors,
+		s.Errors,
+		s.SearchLinks, s.BrowseLinks,
+		s.PagesScraped, s.PagesCached,
+		s.PagesStudied, s.PagesDiscarded, s.PagesSkipped,
+		s.ItemsFound, s.ItemsDelivered,
 	)
 }
 
@@ -113,6 +126,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 					step("SEARCH ERROR", err.Error(), true)
 					continue
 				}
+				runCtx.Stats.SearchLinks += len(urls)
 				startingURLs = append(startingURLs, urls...)
 			}
 			continue
@@ -134,6 +148,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 
 						if matchPattern == "" {
 							startingURLs = append(startingURLs, u)
+							runCtx.Stats.BrowseLinks++
 							step("BROWSE", fmt.Sprintf("Added %s", u), false)
 						} else {
 							step("BROWSE", fmt.Sprintf("Scanning %s for regex '%s'", u, matchPattern), false)
@@ -143,10 +158,12 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 								step("BROWSE ERROR", err.Error(), true)
 								continue
 							}
+							runCtx.Stats.BrowseLinks += len(links)
 							startingURLs = append(startingURLs, links...)
 						}
 					} else if u, ok := c.(string); ok {
 						startingURLs = append(startingURLs, u)
+						runCtx.Stats.BrowseLinks++
 						step("BROWSE", fmt.Sprintf("Added %s", u), false)
 					}
 				}
@@ -193,7 +210,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 				}
 			}
 
-			reportText := runCtx.Stats.GenerateReport()
+			reportText := runCtx.Stats.GenerateReport(minion.Name)
 			reportItem := types.Item{
 				Title:   fmt.Sprintf("Mission Report: %s", minion.Name),
 				Summary: reportText,
@@ -274,7 +291,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
 				for _, word := range dropWords {
 					if strings.Contains(content, word) {
-						step("FILTER", fmt.Sprintf("Dropped %s due to '%s'", m.URL, word), false)
+						step("FILTERED", fmt.Sprintf("Link removed due to keyword: '%s'", word), false)
 						dropped = true
 						break
 					}
@@ -293,9 +310,9 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			for _, m := range matchArray {
 				if m.URL == "" { continue }
 
-				isDropped, err := runCtx.Store.IsDropped(m.URL, minion.Filename)
-				if err == nil && isDropped {
-					step("CACHED", fmt.Sprintf("Skipping dropped URL: %s", m.URL), false)
+				isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
+				if err == nil && isDiscarded {
+					step("FIREWALL", fmt.Sprintf("Skipping discarded URL: %s", m.URL), false)
 					continue
 				}
 
@@ -366,7 +383,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 
 				step("STUDY", fmt.Sprintf("Reading %s", m.URL), false)
-				runCtx.Stats.LLMEvals++
+				runCtx.Stats.PagesStudied++
 				
 				evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
 				res, err := runCtx.LLM.EvaluateText(evalCtx, content, task, format)
@@ -378,11 +395,13 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					continue
 				}
 
-				if res.CacheAction == "permanent_drop" {
-					step("CACHE", fmt.Sprintf("AI marked %s for permanent drop", m.URL), false)
-					_ = runCtx.Store.MarkDropped(m.URL, minion.Filename)
-				} else if res.CacheAction == "re_evaluate_later" {
-					step("KEEP", fmt.Sprintf("AI marked %s for re-evaluation later", m.URL), false)
+				if res.CacheAction == "discard" {
+					runCtx.Stats.PagesDiscarded++
+					step("DISCARDED", fmt.Sprintf("AI marked %s as irrelevant", m.URL), false)
+					_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+				} else if len(res.Matches) == 0 {
+					runCtx.Stats.PagesSkipped++
+					step("SKIPPED", fmt.Sprintf("Valid page, but 0 items found for %s", m.URL), false)
 				}
 
 				runCtx.Stats.ItemsFound += len(res.Matches)
