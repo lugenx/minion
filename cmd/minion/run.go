@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +37,7 @@ Usage:
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		config.LoadEnv()
+		checkPIDLock()
 
 		if detached {
 			runDetached()
@@ -51,12 +53,23 @@ func init() {
 	rootCmd.AddCommand(runCmd)
 }
 
-func runDetached() {
-	if _, err := os.Stat(config.PIDPath); err == nil {
-		fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Daemon is already running. Use 'minion stop' to stop it first."))
-		os.Exit(1)
+func checkPIDLock() {
+	if pidBytes, err := os.ReadFile(config.PIDPath); err == nil {
+		pidStr := strings.TrimSpace(string(pidBytes))
+		if pid, err := strconv.Atoi(pidStr); err == nil {
+			if process, err := os.FindProcess(pid); err == nil {
+				// On Unix, FindProcess always succeeds. Sending signal 0 checks if it's alive.
+				if err := process.Signal(syscall.Signal(0)); err == nil {
+					fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Daemon is already running. Use 'minion stop' to stop it first."))
+					os.Exit(1)
+				}
+			}
+		}
+		// If we reach here, the PID file is stale (process is dead or invalid). We can proceed.
 	}
+}
 
+func runDetached() {
 	exe, err := os.Executable()
 	if err != nil {
 		fmt.Printf("Failed to get executable path: %v\n", err)
@@ -64,6 +77,7 @@ func runDetached() {
 	}
 
 	cmd := exec.Command(exe, "run") 
+	setSysProcAttr(cmd)
 	
 	logFile, err := os.OpenFile(config.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
@@ -78,8 +92,12 @@ func runDetached() {
 		os.Exit(1)
 	}
 
-	if err := os.WriteFile(config.PIDPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644); err != nil {
-		fmt.Printf("Warning: Failed to write PID file: %v\n", err)
+	// Wait up to 2 seconds for the background process to write the PID file
+	for i := 0; i < 20; i++ {
+		if _, err := os.Stat(config.PIDPath); err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	activeCount := 0
@@ -129,6 +147,11 @@ func logMessage(level, minionName, msg string) {
 }
 
 func runDaemon() {
+	// Write our PID so both foreground and background runs are locked
+	if err := os.WriteFile(config.PIDPath, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		fmt.Printf("Warning: Failed to write PID file: %v\n", err)
+	}
+
 	timeStr := lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Printf("%s %s\n", timeStr, lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true).Render("Starting task engine..."))
 
@@ -160,6 +183,10 @@ func runDaemon() {
 	}
 
 	c := cron.New()
+
+	// Create a graceful shutdown context for minions
+	daemonCtx, daemonCancel := context.WithCancel(context.Background())
+	defer daemonCancel()
 
 	for _, m := range minions {
 		if m.Enabled != nil && !*m.Enabled {
@@ -201,7 +228,7 @@ func runDaemon() {
 			infoColor := lipgloss.Color("39")
 			neutralColor := lipgloss.Color("240")
 
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
+			ctx, cancel := context.WithTimeout(daemonCtx, 2*time.Hour)
 			defer cancel()
 			
 			runCtx := &engine.RunContext{
@@ -281,10 +308,15 @@ func runDaemon() {
 	<-sigChan
 
 	fmt.Println()
-	fmt.Printf("%s %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(time.Now().Format("2006-01-02 15:04:05")), lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Shutting down..."))
-	c.Stop()
+	fmt.Printf("%s %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(time.Now().Format("2006-01-02 15:04:05")), lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Shutting down... waiting for running tasks to finish"))
 	
-	if !detached {
-		_ = os.Remove(config.PIDPath)
-	}
+	// Signal running minions to stop quickly if possible
+	daemonCancel()
+
+	// Stop new jobs from starting, and wait for existing ones to finish
+	cronCtx := c.Stop()
+	<-cronCtx.Done()
+	
+	// Always clean up PID file, regardless of detached state
+	_ = os.Remove(config.PIDPath)
 }

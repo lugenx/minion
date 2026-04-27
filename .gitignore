@@ -1,8 +1,8 @@
 # Binaries
-minion
-minion-linux
-minion.exe
-bin/
+/minion
+/minion-linux
+/minion.exe
+/bin/
 
 # OS specific files
 .DS_Store
