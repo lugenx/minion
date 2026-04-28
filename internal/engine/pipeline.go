@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	crand "crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -68,10 +70,11 @@ func (s *Stats) GenerateReport(minionName string) string {
 }
 
 type RunContext struct {
-	Store  *store.Store
-	LLM    *llm.Evaluator
-	Stats  *Stats
-	OnStep func(step, details string, isError bool)
+	Store      *store.Store
+	LLM        *llm.Evaluator
+	Stats      *Stats
+	OnStep     func(step, details string, isError bool)
+	SmartSplit map[string]string
 }
 
 func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext) error {
@@ -188,7 +191,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			return ctx.Err()
 		}
 
-		item := &types.Item{URL: u}
+		item := &types.Item{ID: generateID(), URL: u}
 		err := ProcessItem(ctx, minion, item, runCtx, "cron")
 		if err != nil {
 			runCtx.Stats.Errors++
@@ -443,11 +446,13 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					}
 
 					nextArray = append(nextArray, types.Item{
-						URL:      itemURL,
-						Title:    aiMatch.Title,
-						Summary:  aiMatch.Summary,
-						Text:     inheritedText,
-						TempHash: inheritedHash,
+						ID:        generateID(),
+						URL:       itemURL,
+						ParentURL: m.URL,
+						Title:     aiMatch.Title,
+						Summary:   aiMatch.Summary,
+						Text:      inheritedText,
+						TempHash:  inheritedHash,
 					})
 				}
 			}
@@ -483,6 +488,23 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 	}
 
 	for _, m := range matchArray {
+		isDeepLink := m.ParentURL != "" && m.URL != m.ParentURL
+
+		if isDeepLink {
+			if runCtx.SmartSplit == nil {
+				runCtx.SmartSplit = make(map[string]string)
+			}
+
+			if existingID, exists := runCtx.SmartSplit[m.URL]; exists {
+				if existingID != m.ID {
+					step("DEDUPE", fmt.Sprintf("Smart Split dropped duplicate URL: %s", m.URL), false)
+					continue
+				}
+			} else {
+				runCtx.SmartSplit[m.URL] = m.ID
+			}
+		}
+
 		if saveHash {
 			step("ITEM", fmt.Sprintf("%s: %s", m.Title, m.Summary), false)
 		}
@@ -571,4 +593,10 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 			}
 		}
 	}
+}
+
+func generateID() string {
+	b := make([]byte, 8)
+	crand.Read(b)
+	return hex.EncodeToString(b)
 }
