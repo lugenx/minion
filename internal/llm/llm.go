@@ -56,11 +56,11 @@ func NewEvaluator() (*Evaluator, error) {
 // EvaluateText asks the LLM to evaluate the text against the provided rules.
 func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string) (*EvalResult, error) {
 	currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
-	
+
 	systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
-	
+
 	systemPrompt += fmt.Sprintf("CRITICAL TEMPORAL CONTEXT:\nToday's date and time is %s. Use this as your reference point for any time-based rules in the user's task.\n\n", currentDate)
-	
+
 	systemPrompt += "--- USER TASK START ---\n"
 	if task != "" {
 		systemPrompt += task + "\n"
@@ -68,7 +68,7 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
 		systemPrompt += "Extract all relevant information from the text.\n"
 	}
 	systemPrompt += "--- USER TASK END ---\n\n"
-	
+
 	systemPrompt += "MECHANICAL RULES:\n"
 	systemPrompt += "- Extract ALL independent items from the text that fulfill the user's task.\n"
 	systemPrompt += "- If the text provides a specific [Link: URL] for the item, extract it into the 'url' field. Otherwise, leave it blank.\n"
@@ -79,9 +79,9 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
   "cache_action": "discard" | "skip",
   "matches": [
     {
-      "title": "Name or title of the matched item/event",
-      "url": "Specific url for this event if found, else empty",
-      "summary": "1 sentence explanation of what it is and why it passed. (Note: This summary will be sent directly to the user, so write it for them to read)."
+      "title": "Name or title of the matched item",
+      "url": "Specific url for this item if found, else empty",
+      "summary": "Explain what it is and why it passed. Default to a concise 1-sentence summary, but seamlessly incorporate any specific instructions or requirements from the USER TASK. (Note: This summary will be sent directly to the user, so write it for them to read)."
     }
   ]
 }`
@@ -124,7 +124,7 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
 	if strings.HasSuffix(content, "```") {
 		content = strings.TrimSuffix(content, "```")
 	}
-	
+
 	// Extract only the JSON block (from first { to last })
 	// This prevents "Chain of Thought" conversational text from breaking the parser
 	startIdx := strings.Index(content, "{")
