@@ -94,6 +94,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 	}
 
 	var startingURLs []string
+	protectedURLs := make(map[string]bool)
 
 	// 1. GENERATORS (Gather all URLs first)
 	rand.Seed(time.Now().UnixNano())
@@ -151,6 +152,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 
 						if matchPattern == "" {
 							startingURLs = append(startingURLs, u)
+							protectedURLs[u] = true
 							runCtx.Stats.BrowseLinks++
 							step("BROWSE", fmt.Sprintf("Added %s", u), false)
 						} else {
@@ -166,6 +168,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 						}
 					} else if u, ok := c.(string); ok {
 						startingURLs = append(startingURLs, u)
+						protectedURLs[u] = true
 						runCtx.Stats.BrowseLinks++
 						step("BROWSE", fmt.Sprintf("Added %s", u), false)
 					}
@@ -191,7 +194,11 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			return ctx.Err()
 		}
 
-		item := &types.Item{ID: generateID(), URL: u}
+		item := &types.Item{
+			ID:        generateID(),
+			URL:       u,
+			Protected: protectedURLs[u],
+		}
 		err := ProcessItem(ctx, minion, item, runCtx, "cron")
 		if err != nil {
 			runCtx.Stats.Errors++
@@ -421,9 +428,14 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 
 				if res.CacheAction == "discard" {
-					runCtx.Stats.PagesDiscarded++
-					step("DISCARDED", fmt.Sprintf("AI marked %s as irrelevant", m.URL), false)
-					_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+					if m.Protected {
+						runCtx.Stats.PagesSkipped++
+						step("OVERRIDE", fmt.Sprintf("AI marked %s as discard, but URL is protected. Skipping instead.", m.URL), false)
+					} else {
+						runCtx.Stats.PagesDiscarded++
+						step("DISCARDED", fmt.Sprintf("AI marked %s as irrelevant", m.URL), false)
+						_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+					}
 				} else if len(res.Matches) == 0 {
 					runCtx.Stats.PagesSkipped++
 					step("SKIPPED", fmt.Sprintf("Valid page, but 0 items found for %s", m.URL), false)

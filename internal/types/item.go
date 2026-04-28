@@ -9,4 +9,5 @@ type Item struct {
 	Summary   string
 	Title     string
 	TempHash  string
+	Protected bool
 }
