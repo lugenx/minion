@@ -161,9 +161,9 @@ mission:
 # enabled: true
 # mission:
 #   - receive: "Tech Event Tracker"
-#   - scrape: true
-#   - study: true
-#     task: "Summarize this."
+#   - scrape:
+#   - study:
+#       task: "Summarize this."
 #   - deliver:
 #       - ntfy: "https://ntfy.sh/alerts"
 `

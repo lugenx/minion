@@ -196,16 +196,22 @@ The report block uses the exact same routing syntax as `deliver`, but it only ex
 
 **Example Report Output:**
 ```text
-Start: 2024-10-25 14:30:00
-End:   14:30:04
-Time:  4.2s
+Mission Report: Tech Event Tracker
 
-Pages Fetched:   5
-Pages Cached:    4
-LLM Evaluations: 1
-Items Found:     2
-Items Delivered: 2
-Errors:          0
+Start:  2024-10-25 14:30:00
+End:    14:30:04
+Time:   4.2s
+Errors: 0
+
+- Search Results: 5 links
+- Browse Results: 0 links
+- Scraped:        5 pages
+    - Cached:     4 pages
+- Studied:        1 pages
+    - Discarded:  0 pages
+    - Skipped:    0 pages
+    - Found:      2 items
+- Delivered:      2 items
 ```
 
 ### Handing Data to Other Minions
