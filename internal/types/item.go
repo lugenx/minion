@@ -10,4 +10,5 @@ type Item struct {
 	Title     string
 	TempHash  string
 	Protected bool
+	Render    bool
 }

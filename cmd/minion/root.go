@@ -11,7 +11,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:     "minion",
 	Short:   "Minion is an AI web monitoring agent",
-	Version: "2.1.5",
+	Version: "2.2.0",
 }
 
 func init() {

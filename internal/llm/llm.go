@@ -7,8 +7,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/sashabaranov/go-openai"
 )
 
 // Match represents a single item found in the text that matches the criteria.
@@ -24,37 +22,25 @@ type EvalResult struct {
 	Matches     []Match `json:"matches"`
 }
 
-// Evaluator wraps the OpenAI client configured for OpenRouter.
+// Evaluator wraps the LLM client.
 type Evaluator struct {
-	client *openai.Client
-	model  string
+	model string
 }
 
 // NewEvaluator creates a new Evaluator.
 func NewEvaluator() (*Evaluator, error) {
-	apiKey := os.Getenv("OPENROUTER_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("OPENROUTER_API_KEY environment variable is not set")
-	}
-
 	model := os.Getenv("DEFAULT_MODEL")
 	if model == "" {
 		model = "openai/gpt-4o-mini"
 	}
 
-	config := openai.DefaultConfig(apiKey)
-	config.BaseURL = "https://openrouter.ai/api/v1"
-
-	client := openai.NewClientWithConfig(config)
-
 	return &Evaluator{
-		client: client,
-		model:  model,
+		model: model,
 	}, nil
 }
 
 // EvaluateText asks the LLM to evaluate the text against the provided rules.
-func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string) (*EvalResult, error) {
+func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string) (*EvalResult, float64, error) {
 	currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 
 	systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
@@ -86,33 +72,10 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
   ]
 }`
 
-	req := openai.ChatCompletionRequest{
-		Model: e.model,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: systemPrompt,
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: text,
-			},
-		},
-		ResponseFormat: &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
-		},
-	}
-
-	resp, err := e.client.CreateChatCompletion(ctx, req)
+	content, cost, err := performChatCompletion(ctx, e.model, systemPrompt, text)
 	if err != nil {
-		return nil, fmt.Errorf("llm request failed: %w", err)
+		return nil, 0, err
 	}
-
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("no response from llm")
-	}
-
-	content := resp.Choices[0].Message.Content
 
 	// Strip Markdown formatting if the AI added it (e.g. ```json ... ```)
 	content = strings.TrimSpace(content)
@@ -137,8 +100,8 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
 
 	var result EvalResult
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
-		return nil, fmt.Errorf("failed to parse llm json output: %w. raw output: %s", err, content)
+		return nil, cost, fmt.Errorf("failed to parse llm json output: %w. raw output: %s", err, content)
 	}
 
-	return &result, nil
+	return &result, cost, nil
 }

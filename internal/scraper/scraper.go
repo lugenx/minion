@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/go-rod/rod"
+	"github.com/go-rod/stealth"
 )
 
 func getClient(timeoutSec int) *http.Client {
@@ -129,6 +131,89 @@ func GenerateContentHash(text string) string {
 
 	hash := sha256.Sum256([]byte(strings.TrimSpace(final)))
 	return hex.EncodeToString(hash[:])
+}
+
+func FetchRenderedAndSanitize(browser *rod.Browser, targetURL string, timeoutSec int) (string, string, error) {
+	// Create an incognito session for true isolation, with a strict timeout for this PAGE only
+	page, err := stealth.Page(browser.Timeout(time.Duration(timeoutSec) * time.Second))
+	if err != nil {
+		return "", "", fmt.Errorf("stealth page failed: %w", err)
+	}
+	defer page.Close()
+	
+	if err := page.Navigate(targetURL); err != nil {
+		return "", "", fmt.Errorf("rod navigate failed: %w", err)
+	}
+	
+	if err := page.WaitLoad(); err != nil {
+		return "", "", fmt.Errorf("rod wait load failed: %w", err)
+	}
+	
+	_ = page.WaitStable(2 * time.Second)
+	
+	html, err := page.HTML()
+	if err != nil {
+		return "", "", fmt.Errorf("rod get html failed: %w", err)
+	}
+
+	return sanitizeHTML(strings.NewReader(html), targetURL)
+}
+
+func ExtractLinksRendered(browser *rod.Browser, targetURL, pattern string, timeoutSec int) ([]string, error) {
+	page, err := stealth.Page(browser.Timeout(time.Duration(timeoutSec) * time.Second))
+	if err != nil {
+		return nil, fmt.Errorf("stealth page failed: %w", err)
+	}
+	defer page.Close()
+	
+	if err := page.Navigate(targetURL); err != nil {
+		return nil, fmt.Errorf("rod navigate failed: %w", err)
+	}
+	
+	if err := page.WaitLoad(); err != nil {
+		return nil, fmt.Errorf("rod wait load failed: %w", err)
+	}
+	
+	_ = page.WaitStable(2 * time.Second)
+
+	html, err := page.HTML()
+	if err != nil {
+		return nil, fmt.Errorf("rod get html failed: %w", err)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		return nil, err
+	}
+
+	baseURL, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, err
+	}
+
+	regex, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern '%s': %w", pattern, err)
+	}
+
+	var links []string
+	seen := make(map[string]bool)
+
+	doc.Find("a").Each(func(i int, s *goquery.Selection) {
+		href, exists := s.Attr("href")
+		if exists {
+			parsedHref, err := url.Parse(href)
+			if err == nil {
+				absURL := baseURL.ResolveReference(parsedHref).String()
+				if strings.HasPrefix(absURL, "http") && regex.MatchString(absURL) && !seen[absURL] {
+					seen[absURL] = true
+					links = append(links, absURL)
+				}
+			}
+		}
+	})
+
+	return links, nil
 }
 
 func ExtractLinks(targetURL, pattern string, timeoutSec int) ([]string, error) {

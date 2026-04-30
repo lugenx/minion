@@ -11,6 +11,9 @@ import (
 	
 	"gopkg.in/yaml.v3"
 
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/launcher"
+
 	"minion/internal/config"
 	"minion/internal/llm"
 	"minion/internal/scraper"
@@ -32,6 +35,7 @@ type Stats struct {
 	ItemsFound     int
 	ItemsDelivered int
 	Errors         int
+	TotalCost      float64
 }
 
 func (s *Stats) Duration() time.Duration {
@@ -42,6 +46,11 @@ func (s *Stats) Duration() time.Duration {
 }
 
 func (s *Stats) GenerateReport(minionName string) string {
+	costStr := fmt.Sprintf("$%.4f", s.TotalCost)
+	if s.TotalCost == 0 {
+		costStr = "$0.0000"
+	}
+
 	return fmt.Sprintf(
 		"Mission Report: %s\n\n"+
 			"Start:  %s\n"+
@@ -56,7 +65,8 @@ func (s *Stats) GenerateReport(minionName string) string {
 			"    - Discarded:  %d pages\n"+
 			"    - Skipped:    %d pages\n"+
 			"    - Found:      %d items\n"+
-			"- Delivered:      %d items",
+			"- Delivered:      %d items\n\n"+
+			"Cost:   %s",
 		minionName,
 		s.StartTime.Format("2006-01-02 15:04:05"),
 		s.EndTime.Format("15:04:05"),
@@ -66,6 +76,7 @@ func (s *Stats) GenerateReport(minionName string) string {
 		s.PagesScraped, s.PagesCached,
 		s.PagesStudied, s.PagesDiscarded, s.PagesSkipped,
 		s.ItemsFound, s.ItemsDelivered,
+		costStr,
 	)
 }
 
@@ -75,11 +86,46 @@ type RunContext struct {
 	Stats      *Stats
 	OnStep     func(step, details string, isError bool)
 	SmartSplit map[string]string
+	Browser    *rod.Browser
+	Launcher   *launcher.Launcher
+}
+
+func (r *RunContext) GetBrowser(timeoutSec int) (*rod.Browser, error) {
+	if r.Browser == nil {
+		if timeoutSec <= 0 {
+			timeoutSec = 15
+		}
+		l := launcher.New()
+		u, err := l.Launch()
+		if err != nil {
+			return nil, fmt.Errorf("failed to launch chromium: %w", err)
+		}
+		
+		browser := rod.New().ControlURL(u)
+		if err := browser.Connect(); err != nil {
+			l.Cleanup()
+			return nil, fmt.Errorf("failed to start headless browser: %w", err)
+		}
+		
+		r.Launcher = l
+		r.Browser = browser
+	}
+	return r.Browser, nil
 }
 
 func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext) error {
 	_ = runCtx.Store.MarkJobActive(minion.Filename)
 	defer runCtx.Store.MarkJobDone(minion.Filename)
+	defer func() {
+		if runCtx.Browser != nil {
+			_ = runCtx.Browser.Close()
+			runCtx.Browser = nil
+		}
+		if runCtx.Launcher != nil {
+			runCtx.Launcher.Cleanup()
+			runCtx.Launcher = nil
+		}
+	}()
 
 	step := func(s, details string, isError bool) {
 		if runCtx.OnStep != nil {
@@ -93,8 +139,24 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		runCtx.Stats = &Stats{StartTime: time.Now()}
 	}
 
+	// Extract global timeout from scrape block (defaults to 30s for headless operations)
+	globalTimeout := 30
+	for _, action := range minion.Mission {
+		if scrapeVal, ok := action["scrape"]; ok {
+			if scrapeMap, ok := scrapeVal.(map[string]interface{}); ok {
+				if t, ok := scrapeMap["timeout"].(int); ok {
+					if t > 0 {
+						globalTimeout = t
+					}
+				}
+			}
+			break
+		}
+	}
+
 	var startingURLs []string
 	protectedURLs := make(map[string]bool)
+	renderURLs := make(map[string]bool)
 
 	// 1. GENERATORS (Gather all URLs first)
 	rand.Seed(time.Now().UnixNano())
@@ -145,6 +207,11 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 							continue
 						}
 						
+						renderFlag := false
+						if r, ok := cmap["render"].(bool); ok {
+							renderFlag = r
+						}
+
 						matchPattern := ""
 						if m, ok := cmap["match"].(string); ok {
 							matchPattern = m
@@ -153,11 +220,26 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 						if matchPattern == "" {
 							startingURLs = append(startingURLs, u)
 							protectedURLs[u] = true
+							if renderFlag {
+								renderURLs[u] = true
+							}
 							runCtx.Stats.BrowseLinks++
 							step("BROWSE", fmt.Sprintf("Added %s", u), false)
 						} else {
 							step("BROWSE", fmt.Sprintf("Scanning %s for regex '%s'", u, matchPattern), false)
-							links, err := scraper.ExtractLinks(u, matchPattern, 15)
+							var links []string
+							var err error
+							if renderFlag {
+								browser, bErr := runCtx.GetBrowser(globalTimeout)
+								if bErr != nil {
+									runCtx.Stats.Errors++
+									step("BROWSE ERROR", bErr.Error(), true)
+									continue
+								}
+								links, err = scraper.ExtractLinksRendered(browser, u, matchPattern, globalTimeout)
+							} else {
+								links, err = scraper.ExtractLinks(u, matchPattern, globalTimeout)
+							}
 							if err != nil {
 								runCtx.Stats.Errors++
 								step("BROWSE ERROR", err.Error(), true)
@@ -165,6 +247,11 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 							}
 							runCtx.Stats.BrowseLinks += len(links)
 							startingURLs = append(startingURLs, links...)
+							if renderFlag {
+								for _, link := range links {
+									renderURLs[link] = true
+								}
+							}
 						}
 					} else if u, ok := c.(string); ok {
 						startingURLs = append(startingURLs, u)
@@ -198,6 +285,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			ID:        generateID(),
 			URL:       u,
 			Protected: protectedURLs[u],
+			Render:    renderURLs[u],
 		}
 		err := ProcessItem(ctx, minion, item, runCtx, "cron")
 		if err != nil {
@@ -318,11 +406,14 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 		}
 
 		if scrapeVal, ok := action["scrape"]; ok {
-			timeoutSec := 15
+			// timeoutSec is now inherited globally or locally, but we need it locally for HTTP fallback
+			timeoutSec := 30
 			delaySec := 2 // Default to 2 seconds of max jitter protection
 			if scrapeMap, ok := scrapeVal.(map[string]interface{}); ok {
 				if t, ok := scrapeMap["timeout"].(int); ok {
-					timeoutSec = t
+					if t > 0 {
+						timeoutSec = t
+					}
 				}
 				if d, ok := scrapeMap["delay"].(int); ok {
 					delaySec = d
@@ -365,10 +456,22 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 
 				step("SCRAPE", m.URL, false)
-				text, hash, err := scraper.FetchAndSanitize(m.URL, timeoutSec)
-				if err != nil {
+				var text, hash string
+				var fetchErr error
+				if m.Render {
+					browser, bErr := runCtx.GetBrowser(timeoutSec)
+					if bErr != nil {
+						runCtx.Stats.Errors++
+						step("SCRAPE ERROR", bErr.Error(), true)
+						continue
+					}
+					text, hash, fetchErr = scraper.FetchRenderedAndSanitize(browser, m.URL, timeoutSec)
+				} else {
+					text, hash, fetchErr = scraper.FetchAndSanitize(m.URL, timeoutSec)
+				}
+				if fetchErr != nil {
 					runCtx.Stats.Errors++
-					step("SCRAPE ERROR", err.Error(), true)
+					step("SCRAPE ERROR", fetchErr.Error(), true)
 					continue
 				}
 
@@ -418,7 +521,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				runCtx.Stats.PagesStudied++
 				
 				evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-				res, err := runCtx.LLM.EvaluateText(evalCtx, content, task, format)
+				res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, task, format)
 				evalCancel()
 
 				if err != nil {
@@ -426,6 +529,8 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					step("STUDY ERROR", fmt.Sprintf("LLM failed for %s: %v", m.URL, err), true)
 					continue
 				}
+				
+				runCtx.Stats.TotalCost += cost
 
 				if res.CacheAction == "discard" {
 					if m.Protected {

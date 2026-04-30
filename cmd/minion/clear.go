@@ -3,6 +3,7 @@ package minion
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -14,13 +15,13 @@ import (
 var clearAll bool
 
 var clearCmd = &cobra.Command{
-	Use:   "clear <minion_name> | --all",
-	Short: "Clears DB memory (Usage: minion clear <name> OR minion clear --all)",
+	Use:   "clear <filename> | --all",
+	Short: "Clears DB memory (Usage: minion clear <filename> OR minion clear --all)",
 	Run: func(cmd *cobra.Command, args []string) {
 		config.LoadEnv()
 
 		if !clearAll && len(args) != 1 {
-			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Error: You must provide a minion name or use the --all flag."))
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Error: You must provide a minion filename or use the --all flag."))
 			cmd.Usage()
 			os.Exit(1)
 		}
@@ -43,6 +44,11 @@ var clearCmd = &cobra.Command{
 		}
 
 		minionName := args[0]
+		// Smart resolution: match how the core engine loads files
+		if !strings.HasSuffix(minionName, ".yaml") && !strings.HasSuffix(minionName, ".yml") {
+			minionName += ".yaml"
+		}
+
 		deleted, err := dbStore.ClearMinionState(minionName)
 		if err != nil {
 			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("Failed to clear state for %s: %v", minionName, err)))

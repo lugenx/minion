@@ -69,6 +69,10 @@ mission:
       # Browse the page and return sub-links matching the Regex pattern
       - url: "https://example.com/events"
         match: "/events/"
+      # Use a headless browser to execute JavaScript for Single Page Applications (SPAs)
+      - url: "https://example.com/products"
+        match: "/p/"
+        render: true
 
   # 3. Filter out bad links immediately
   - filter: 
@@ -104,7 +108,7 @@ Use these commands to manage your tasks:
 *   **`minion run -d`** - Starts the engine silently in the background. It will run your active minions on their designated schedules.
 *   **`minion log <filename>`** - Follows the live step-by-step execution log for a specific minion while it runs in the background. (Leave filename blank to see master daemon log).
 *   **`minion list`** - Displays a table of all your minions, their current state (Scheduled/Running/Stopped), and their next scheduled run time. (Use `-a` to show disabled minions).
-*   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen.
+*   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen. (e.g. `minion clear 23` or `minion clear --all`)
 *   **`minion stop`** - Halts the background daemon.
 
 ---
@@ -124,6 +128,8 @@ Minion allows you to build modular pipelines. You can skip steps, duplicate step
 
 ### Data Generators
 You can hardcode specific URLs, instruct the minion to browse homepages for sub-links, or search the web dynamically.
+
+For heavily JavaScript-rendered websites (SPAs), add `render: true` to the browse block. This will boot an isolated Chromium headless browser to execute the JavaScript and wait for background network requests to finish before extracting links.
 ```yaml
 - search: 
     - "latest open source AI models"
@@ -133,6 +139,9 @@ You can hardcode specific URLs, instruct the minion to browse homepages for sub-
     - url: "https://example.com/news"
     - url: "https://example.com/products"
       match: "/releases/"
+    - url: "https://example.com/products"
+      match: "/p/"
+      render: true
 ```
 
 ### Fast Filtering (Optional)
@@ -144,6 +153,8 @@ LLM calls cost money. The fast filter does a strict string match. You can use th
 
 ### Scraping (Optional)
 Downloads the raw HTML of the gathered URLs and strips away formatting, scripts, and styling to leave only readable text. You can optionally set a timeout and a maximum delay between requests to avoid bot detection.
+
+If you used `render: true` in the browse step, the scraper will automatically use a headless browser to fetch the final pages as well. The `timeout` value is applied globally.
 ```yaml
 - scrape:
     timeout: 15
@@ -212,6 +223,8 @@ Errors: 0
     - Skipped:    0 pages
     - Found:      2 items
 - Delivered:      2 items
+
+Cost:   $0.0012
 ```
 
 ### Handing Data to Other Minions
