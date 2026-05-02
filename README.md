@@ -92,6 +92,7 @@ mission:
   # 6. Deliver the results
   - deliver:
       - ntfy: "https://ntfy.sh/mytopic"
+        # markdown: true
         # basic_auth:
         #   username: "${MY_USERNAME}"
         #   password: "${MY_PASSWORD}"
@@ -177,6 +178,7 @@ It natively supports Environment Variable Expansion so you never have to hardcod
 ```yaml
 - deliver:
     - ntfy: "https://ntfy.sh/mytopic"
+      markdown: true
     - discord: "https://discord.com/api/webhooks/123"
     
     # Advanced Power User HTTP Requests

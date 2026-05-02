@@ -18,7 +18,7 @@ type BasicAuth struct {
 	Password string `yaml:"password"`
 }
 
-func SendNtfy(urlStr string, auth *BasicAuth, minionName string, item *types.Item) error {
+func SendNtfy(urlStr string, auth *BasicAuth, minionName string, item *types.Item, markdown bool) error {
 	if urlStr == "" {
 		return nil
 	}
@@ -42,6 +42,10 @@ func SendNtfy(urlStr string, auth *BasicAuth, minionName string, item *types.Ite
 
 	if item.URL != "" {
 		req.Header.Set("Click", item.URL)
+	}
+
+	if markdown {
+		req.Header.Set("Markdown", "yes")
 	}
 
 	resp, err := httpClient.Do(req)

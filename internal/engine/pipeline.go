@@ -635,7 +635,12 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 					yaml.Unmarshal(b, &auth)
 				}
 				
-				err := delivery.SendNtfy(urlStr, auth, minion.Name, &m)
+				var useMarkdown bool
+				if md, ok := t["markdown"].(bool); ok {
+					useMarkdown = md
+				}
+				
+				err := delivery.SendNtfy(urlStr, auth, minion.Name, &m, useMarkdown)
 				if err != nil {
 					runCtx.Stats.Errors++
 					step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
