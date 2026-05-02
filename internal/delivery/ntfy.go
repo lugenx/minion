@@ -42,6 +42,7 @@ func SendNtfy(urlStr string, auth *BasicAuth, minionName string, item *types.Ite
 
 	if item.URL != "" {
 		req.Header.Set("Click", item.URL)
+		req.Header.Set("Actions", fmt.Sprintf("view, OPEN LINK, %s", item.URL))
 	}
 
 	if markdown {
