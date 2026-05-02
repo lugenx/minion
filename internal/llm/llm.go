@@ -65,9 +65,9 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
   "cache_action": "discard" | "skip",
   "matches": [
     {
-      "title": "Name or title of the matched item",
-      "url": "Specific url for this item if found, else empty",
-      "summary": "This is the summary of what you found. Look at the USER TASK to see anything you need to add or incorporate to this field to fulfill the instructions. Default to a 1-sentence explanation of what the item is and why it matched, but prioritize the USER TASK if there is any conflict. (Note: This is sent directly to the user, so write it for them to read using 'you' and 'your')."
+      "title": "This is the name or title of the matched item. Look at the USER TASK to see anything you need to modify or incorporate to this field to fulfill the instructions. Default to the exact name or title of the item, but prioritize the USER TASK if there is any conflict.",
+      "url": "This is the specific URL for the matched item. Look at the USER TASK to see anything you need to modify or incorporate to this field to fulfill the instructions. Default to the exact URL found in the text (leave empty if none), but prioritize the USER TASK if there is any conflict.",
+      "summary": "This is the summary of the matched item. Look at the USER TASK to see anything you need to add or incorporate to this field to fulfill the instructions. Default to a 1-sentence explanation of what the item is and why it matched, but prioritize the USER TASK if there is any conflict. (Note: This is sent directly to the user, so write it for them to read using 'you' and 'your')."
     }
   ]
 }`
