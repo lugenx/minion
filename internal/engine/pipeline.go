@@ -554,10 +554,13 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 						itemURL = m.URL // Inherit the parent's URL if the AI left it blank
 					}
 
+					itemURL = strings.TrimSuffix(itemURL, "/")
+					cleanParentURL := strings.TrimSuffix(m.URL, "/")
+
 					inheritedText := ""
 					inheritedHash := ""
 					// ONLY pass the HTML down the chain if the URL is exactly the same!
-					if itemURL == m.URL {
+					if itemURL == cleanParentURL {
 						inheritedText = m.Text
 						inheritedHash = m.TempHash
 					}
@@ -565,7 +568,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					nextArray = append(nextArray, types.Item{
 						ID:        generateID(),
 						URL:       itemURL,
-						ParentURL: m.URL,
+						ParentURL: cleanParentURL,
 						Title:     aiMatch.Title,
 						Summary:   aiMatch.Summary,
 						Text:      inheritedText,
