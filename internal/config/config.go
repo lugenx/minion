@@ -27,7 +27,20 @@ var (
 	DBPath          string
 	LogPath         string
 	PIDPath         string
+	MasksPath       string
 )
+
+var GlobalMasks []MaskConfig
+
+type MaskConfig struct {
+	Name        string `yaml:"name"`
+	Pattern     string `yaml:"pattern"`
+	Replacement string `yaml:"replacement"`
+}
+
+type MasksFile struct {
+	Masks []MaskConfig `yaml:"masks"`
+}
 
 func init() {
 	homeDir, err := os.UserHomeDir()
@@ -42,6 +55,7 @@ func init() {
 	DBPath = filepath.Join(GlobalConfigDir, "minion.db")
 	LogPath = filepath.Join(GlobalConfigDir, "minion.log")
 	PIDPath = filepath.Join(GlobalConfigDir, "minion.pid")
+	MasksPath = filepath.Join(GlobalConfigDir, "masks.yaml")
 }
 
 func EnsureDirectories() error {
@@ -56,6 +70,10 @@ func EnsureDirectories() error {
 		scaffoldExampleFiles()
 	} else if _, err := os.Stat(filepath.Join(MinionsDir, "example.yaml")); os.IsNotExist(err) {
 		scaffoldExampleFiles()
+	}
+	
+	if _, err := os.Stat(MasksPath); os.IsNotExist(err) {
+		scaffoldMasksFile()
 	}
 
 	return nil
@@ -170,8 +188,79 @@ mission:
 	examplePath := filepath.Join(MinionsDir, "example.yaml")
 	_ = os.WriteFile(examplePath, []byte(exampleContent), 0644)
 }
+
+func scaffoldMasksFile() {
+	masksContent := `# =================================================================
+# MINION SNAPSHOT MASKS (PREVENT DUPLICATES)
+# =================================================================
+# Minion prevents duplicate messages by taking a "snapshot" of the page.
+# If the website has constantly changing numbers (like "views" or "mins ago"),
+# the snapshot breaks and you get duplicates.
+#
+# Use this file to MASK the changes you don't care about. 
+# Minion will place a static mask over the dynamic text before taking the snapshot!
+
+masks:
+  - name: "Relative Time (The Ticking Clocks)"
+    pattern: '(?i)\b\d+\s*(secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|weeks?|months?|years?)\s*ago\b'
+    replacement: '<TIME_AGO>'
+
+  - name: "Engagement Metrics"
+    pattern: '(?i)\b\d+\s*(views?|comments?|likes?|replies|retweets|shares)\b'
+    replacement: '<METRIC>'
+
+  - name: "Parenthetical Counters"
+    pattern: '\(\s*\d+\s*\)'
+    replacement: '<COUNT>'
+
+  - name: "Dynamic Updates"
+    pattern: '(?i)(?:last\s*)?updated\s*(?:today|yesterday|now|\d+)'
+    replacement: '<UPDATED>'
+
+  - name: "And X Others"
+    pattern: '(?i)(?:and\s+)?\d+\s+others?'
+    replacement: '<AND_OTHERS>'
+
+  - name: "Attendees / Going (Event sites)"
+    pattern: '(?i)\b\d+\s*(?:people\s*)?(?:going|interested|attending|registered)\b'
+    replacement: '<ATTENDEES>'
+
+  - name: "Active/Online Users (Forums)"
+    pattern: '(?i)\b\d+\s*(?:users?\s*)?(?:online|active|viewing)(?:\s*now)?\b'
+    replacement: '<ACTIVE_USERS>'
+
+  - name: "Review Counters"
+    pattern: '(?i)\b\d+(?:,\d+)?\s*(?:customer\s*)?reviews?\b'
+    replacement: '<REVIEW_COUNT>'
+
+  - name: "Follower/Subscriber Counters"
+    pattern: '(?i)\b\d+(?:[kKmM])?\s*(?:followers?|subscribers?)\b'
+    replacement: '<FOLLOWER_COUNT>'
+`
+	_ = os.WriteFile(MasksPath, []byte(masksContent), 0644)
+}
+
+func LoadMasks() error {
+	data, err := os.ReadFile(MasksPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // It's ok if it doesn't exist
+		}
+		return fmt.Errorf("failed to read masks file: %w", err)
+	}
+
+	var mf MasksFile
+	if err := yaml.Unmarshal(data, &mf); err != nil {
+		return fmt.Errorf("failed to parse masks file: %w", err)
+	}
+
+	GlobalMasks = mf.Masks
+	return nil
+}
+
 func LoadEnv() error {
 	EnsureDirectories()
+	LoadMasks()
 	_ = godotenv.Load(EnvPath)
 	return nil
 }
