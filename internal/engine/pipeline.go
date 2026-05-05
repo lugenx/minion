@@ -372,16 +372,18 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 		if val, ok := action["filter"]; ok {
 			var dropWords []string
+			var keepWords []string
 			if filterMap, ok := val.(map[string]interface{}); ok {
-				if dw, ok := filterMap["drop_if_contains"].([]interface{}); ok {
+				if dw, ok := filterMap["drop"].([]interface{}); ok {
 					for _, w := range dw {
 						dropWords = append(dropWords, strings.ToLower(fmt.Sprintf("%v", w)))
 					}
 				}
-			} else if dw, ok := val.([]interface{}); ok {
-				// Allow simple array syntax: filter: ["paywall"]
-				for _, w := range dw {
-					dropWords = append(dropWords, strings.ToLower(fmt.Sprintf("%v", w)))
+
+				if kw, ok := filterMap["keep"].([]interface{}); ok {
+					for _, w := range kw {
+						keepWords = append(keepWords, strings.ToLower(fmt.Sprintf("%v", w)))
+					}
 				}
 			}
 
@@ -389,13 +391,31 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			for _, m := range matchArray {
 				dropped := false
 				content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
+				
+				// 1. Drop check takes precedence
 				for _, word := range dropWords {
 					if strings.Contains(content, word) {
-						step("FILTERED", fmt.Sprintf("Link removed due to keyword: '%s'", word), false)
+						step("FILTERED", fmt.Sprintf("Item dropped due to 'drop' keyword: '%s'", word), false)
 						dropped = true
 						break
 					}
 				}
+				
+				// 2. Keep check (only evaluate if not already dropped and keep words exist)
+				if !dropped && len(keepWords) > 0 {
+					kept := false
+					for _, word := range keepWords {
+						if strings.Contains(content, word) {
+							kept = true
+							break
+						}
+					}
+					if !kept {
+						step("FILTERED", "Item dropped, did not match any 'keep' keywords", false)
+						dropped = true
+					}
+				}
+
 				if !dropped {
 					nextArray = append(nextArray, m)
 				}

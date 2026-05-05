@@ -74,9 +74,10 @@ mission:
         match: "/p/"
         render: true
 
-  # 3. Filter out bad links immediately
+  # 3. Filter links immediately using simple keywords
   - filter: 
-      drop_if_contains: ["webinar", "online"]
+      keep: ["startup", "release"] # Must contain at least one of these (if defined)
+      drop: ["webinar", "online"]  # Drops the link (evaluated first)
 
   # 4. Download the webpage HTML
   - scrape:
@@ -146,10 +147,15 @@ For heavily JavaScript-rendered websites (SPAs), add `render: true` to the brows
 ```
 
 ### Fast Filtering (Optional)
-LLM calls cost money. The fast filter does a strict string match. You can use this to drop bad URLs before you scrape them, or on the raw HTML text after you scrape them.
+LLM calls cost money. The fast filter does a strict string match (case-insensitive) on the URL, title, and preview text. You can use this to drop bad URLs before you scrape them, or on the raw HTML text after you scrape them.
+
+If you provide multiple words, the filter uses **ANY** logic—it triggers if the text contains at least one of the words as a substring. 
+If both `keep` and `drop` arrays are provided, the filter evaluates `drop` first. If a `drop` word is found, the item is immediately discarded, even if it also contains a `keep` word.
+
 ```yaml
 - filter: 
-    drop_if_contains: ["paywall", "subscribe to read"]
+    keep: ["artificial intelligence", "machine learning"]
+    drop: ["paywall", "subscribe to read"]
 ```
 
 ### Scraping (Optional)

@@ -134,9 +134,10 @@ mission:
 
   # --- 3. THE PIPELINE (Runs one-by-one on the gathered links) ---
   
-  # Fast Filter (Optional): Drop links before scraping them if they contain junk words.
+  # Fast Filter (Optional): Drop or Keep links before scraping them using simple keyword matching.
   - filter: 
-      drop_if_contains: ["webinar", "online only"]
+      # keep: ["ai", "machine learning"] # Must match at least one (if defined)
+      drop: ["webinar", "online only"]   # Drop is evaluated first
 
   # Scrape: Download the actual HTML text of the clean links
   - scrape:
