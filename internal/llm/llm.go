@@ -40,7 +40,7 @@ func NewEvaluator() (*Evaluator, error) {
 }
 
 // EvaluateText asks the LLM to evaluate the text against the provided rules.
-func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string) (*EvalResult, float64, error) {
+func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string, source string) (*EvalResult, float64, error) {
 	currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 
 	systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
@@ -59,7 +59,9 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
 	systemPrompt += "- Extract ALL independent items from the text that fulfill the user's task.\n"
 	systemPrompt += "- If the text provides a specific [Link: URL] for the item, extract it into the 'url' field. Otherwise, leave it blank.\n"
 	systemPrompt += "- If no items match the task, return an empty array for matches.\n"
-	systemPrompt += "- CACHING: Return 'discard' if the page is permanently off-topic, junk, or old. Return 'skip' for lists that update frequently, or for relevant pages that simply fail a dynamic rule (like how \"next 5 days\" or prices change every day) so we can check them again later.\n"
+	systemPrompt += "- CACHING & ROUTING (CRITICAL): The user may use words like \"discard\", \"skip\", or \"ignore\" in their task to filter items. You must be aware of this and NOT confuse their item-level filtering with your page-level routing. Evaluate the page independently based on these consequences:\n"
+	systemPrompt += "  * Return 'discard' if the page is permanently off-topic, junk, or old. CONSEQUENCE: You will permanently blacklist this URL and we will NEVER ask you to read it again.\n"
+	systemPrompt += "  * Return 'skip' for lists that update frequently, or for relevant pages that simply fail a dynamic rule (like how \"next 5 days\" or prices change every day). CONSEQUENCE: You will ignore the page for now, but we will ask you to check it again on the next run because either the page content might change, OR the current date/time will change making the rules match later.\n"
 	systemPrompt += "- You MUST output ONLY a valid JSON object matching this schema exactly:\n"
 	systemPrompt += `{
   "cache_action": "discard" | "skip",
@@ -72,7 +74,13 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
   ]
 }`
 
-	content, cost, err := performChatCompletion(ctx, e.model, systemPrompt, text)
+	userMessage := ""
+	if source != "" {
+		userMessage += fmt.Sprintf("--- SOURCE: %s ---\n\n", source)
+	}
+	userMessage += text
+
+	content, cost, err := performChatCompletion(ctx, e.model, systemPrompt, userMessage)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -541,7 +541,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				runCtx.Stats.PagesStudied++
 				
 				evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-				res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, task, format)
+				res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, task, format, m.URL)
 				evalCancel()
 
 				if err != nil {
