@@ -42,7 +42,7 @@ If you provide no arguments, it follows the master daemon log.`,
 
 		fmt.Printf("Following log at %s...\n(Press Ctrl+C to exit)\n\n", targetLog)
 
-		tailCmd := exec.Command("tail", "-f", targetLog)
+		tailCmd := exec.Command("tail", "-n", "+1", "-f", targetLog)
 		tailCmd.Stdout = os.Stdout
 		tailCmd.Stderr = os.Stderr
 
