@@ -52,6 +52,7 @@ type model struct {
 
 	minions       []*config.MinionConfig
 	activeJobs    map[string]bool
+	upCount       int
 	daemonRunning bool
 	cursor        int
 
@@ -151,9 +152,20 @@ func (m *model) loadState() {
 	dbStore, _ := store.InitStore(config.DBPath)
 	if dbStore != nil {
 		m.activeJobs, _ = dbStore.GetActiveJobs()
+		m.upCount = 0
+		activeMinions, _ := dbStore.GetActiveMinions()
+		for _, mc := range m.minions {
+			if mc.Enabled != nil && !*mc.Enabled {
+				continue
+			}
+			if activeMinions[mc.Filename] {
+				m.upCount++
+			}
+		}
 		dbStore.Close()
 	} else {
 		m.activeJobs = make(map[string]bool)
+		m.upCount = 0
 	}
 
 	if len(m.minions) == 0 {

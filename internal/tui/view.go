@@ -127,24 +127,41 @@ func (m model) DebugParts() (string, string, string, int) {
 	return header, footer, content, mainH
 }
 
-	func (m model) renderHeader() string {
-		var status string
-				if m.daemonRunning {
-					status = lipgloss.NewStyle().Foreground(colorSuccess).Render("Fleet is running")
-				} else {
-			status = lipgloss.NewStyle().Foreground(colorError).Render("Fleet is stopped")
-		}
+func (m model) renderHeader() string {
+	var status string
+	activeCount := len(m.activeJobs)
 
-		title := titleStyle.Render("Minions")
-		
-		space := m.width - lipgloss.Width(title) - lipgloss.Width(status) - 4 // -4 for margins (2 left, 2 right)
-		if space < 0 { space = 0 }
-		
-		header := fmt.Sprintf("  %s%s%s  ", title, strings.Repeat(" ", space), status)
-		border := borderStyle.Render(strings.Repeat("─", m.width))
-		
-		return header + "\n" + border
+	if m.upCount > 0 {
+		upWord := "minions are"
+		if m.upCount == 1 {
+			upWord = "minion is"
+		}
+		upPart := fmt.Sprintf("%d %s up", m.upCount, upWord)
+
+		if activeCount > 0 {
+			runWord := "are running"
+			if activeCount == 1 {
+				runWord = "is running"
+			}
+			runPart := fmt.Sprintf("%d %s", activeCount, runWord)
+			status = lipgloss.NewStyle().Foreground(colorSuccess).Render(upPart + ", " + runPart)
+		} else {
+			status = lipgloss.NewStyle().Foreground(colorSuccess).Render(upPart)
+		}
+	} else {
+		status = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("All minions are down")
 	}
+
+	title := titleStyle.Render("Minions")
+	
+	space := m.width - lipgloss.Width(title) - lipgloss.Width(status) - 4
+	if space < 0 { space = 0 }
+	
+	header := fmt.Sprintf("  %s%s%s  ", title, strings.Repeat(" ", space), status)
+	border := borderStyle.Render(strings.Repeat("─", m.width))
+	
+	return header + "\n" + border
+}
 
 	func (m model) renderFooter() string {
 		border := borderStyle.Render(strings.Repeat("─", m.width))

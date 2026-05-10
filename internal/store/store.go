@@ -125,6 +125,23 @@ func (s *Store) SetMinionStatus(minionFilename string, isActive bool) error {
 	return err
 }
 
+func (s *Store) GetActiveMinions() (map[string]bool, error) {
+	rows, err := s.db.Query("SELECT minion_filename FROM minion_status WHERE is_active = 1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	active := make(map[string]bool)
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err == nil {
+			active[filename] = true
+		}
+	}
+	return active, nil
+}
+
 func (s *Store) GetMinionStatus(minionFilename string) bool {
 	var isActive bool
 	err := s.db.QueryRow("SELECT is_active FROM minion_status WHERE minion_filename = ?", minionFilename).Scan(&isActive)

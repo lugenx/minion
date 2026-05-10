@@ -622,33 +622,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case key.Matches(msg, m.keys.Toggle):
 						if len(m.minions) > 0 {
 							selected := m.minions[m.cursor]
+							if selected.Enabled != nil && !*selected.Enabled {
+								return m, nil
+							}
 							dbStore, _ := store.InitStore(config.DBPath)
 							if dbStore != nil {
 								currentState := dbStore.GetMinionStatus(selected.Filename)
 								newState := !currentState
 								_ = dbStore.SetMinionStatus(selected.Filename, newState)
 								
-								// Re-eval fleet auto-start/stop
 								if newState {
-									// Turning on -> Ensure daemon is running
+									m.upCount++
 									if !m.daemonRunning {
 										c := exec.Command(os.Args[0], "run", "-d")
 										_ = c.Run()
 										m.daemonRunning = true
 									}
 								} else {
-									// Turning off -> If it was the last one, kill daemon
-									minions, _ := config.LoadAllMinions()
-									activeCount := 0
-									for _, mConf := range minions {
-										if mConf.Enabled != nil && !*mConf.Enabled {
-											continue
-										}
-										if dbStore.GetMinionStatus(mConf.Filename) {
-											activeCount++
-										}
-									}
-									if activeCount == 0 && m.daemonRunning {
+									m.upCount--
+									if m.upCount <= 0 && m.daemonRunning {
 										c := exec.Command(os.Args[0], "down")
 										_ = c.Run()
 										m.daemonRunning = false
@@ -784,33 +776,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						case key.Matches(msg, m.keys.Toggle):
 							if len(m.minions) > 0 {
 								selected := m.minions[m.cursor]
+								if selected.Enabled != nil && !*selected.Enabled {
+									return m, nil
+								}
 								dbStore, _ := store.InitStore(config.DBPath)
 								if dbStore != nil {
 									currentState := dbStore.GetMinionStatus(selected.Filename)
 									newState := !currentState
 									_ = dbStore.SetMinionStatus(selected.Filename, newState)
 									
-									// Re-eval fleet auto-start/stop
 									if newState {
-										// Turning on -> Ensure daemon is running
+										m.upCount++
 										if !m.daemonRunning {
 											c := exec.Command(os.Args[0], "run", "-d")
 											_ = c.Run()
 											m.daemonRunning = true
 										}
 									} else {
-										// Turning off -> If it was the last one, kill daemon
-										minions, _ := config.LoadAllMinions()
-										activeCount := 0
-										for _, mConf := range minions {
-											if mConf.Enabled != nil && !*mConf.Enabled {
-												continue
-											}
-											if dbStore.GetMinionStatus(mConf.Filename) {
-												activeCount++
-											}
-										}
-										if activeCount == 0 && m.daemonRunning {
+										m.upCount--
+										if m.upCount <= 0 && m.daemonRunning {
 											c := exec.Command(os.Args[0], "down")
 											_ = c.Run()
 											m.daemonRunning = false
@@ -947,6 +931,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		dbStore, _ := store.InitStore(config.DBPath)
 		if dbStore != nil {
 			m.activeJobs, _ = dbStore.GetActiveJobs()
+			m.upCount = 0
+			activeMinions, _ := dbStore.GetActiveMinions()
+			for _, mc := range m.minions {
+				if mc.Enabled != nil && !*mc.Enabled {
+					continue
+				}
+				if activeMinions[mc.Filename] {
+					m.upCount++
+				}
+			}
 			dbStore.Close()
 		}
 		
