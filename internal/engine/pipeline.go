@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 	
@@ -620,6 +622,18 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 	return nil
 }
 
+var envRegex = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}`)
+
+func strictExpandEnv(s string) string {
+	return envRegex.ReplaceAllStringFunc(s, func(match string) string {
+		varName := match[2 : len(match)-1]
+		if val, exists := os.LookupEnv(varName); exists {
+			return val
+		}
+		return match
+	})
+}
+
 func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext, matchArray []types.Item, targets []map[string]interface{}, saveHash bool) {
 	step := func(s, details string, isError bool) {
 		if runCtx.OnStep != nil {
@@ -649,66 +663,72 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 			step("ITEM", fmt.Sprintf("%s: %s", m.Title, m.Summary), false)
 		}
 
-		for _, t := range targets {
-			if ntfyURL, ok := t["ntfy"]; ok {
-				urlStr := fmt.Sprintf("%v", ntfyURL)
-				var auth *delivery.BasicAuth
-				if baData, ok := t["basic_auth"]; ok {
-					b, _ := yaml.Marshal(baData)
-					yaml.Unmarshal(b, &auth)
-				}
-				
-				var useMarkdown bool
-				if md, ok := t["markdown"].(bool); ok {
-					useMarkdown = md
-				}
-				
-				err := delivery.SendNtfy(urlStr, auth, minion.Name, &m, useMarkdown)
-				if err != nil {
-					runCtx.Stats.Errors++
-					step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
-				} else {
-					if saveHash { runCtx.Stats.ItemsDelivered++ }
-					step("DELIVERY", fmt.Sprintf("Sent ntfy alert for '%s'", m.Title), false)
-				}
-			}
-
-			if discordURL, ok := t["discord"]; ok {
-				urlStr := fmt.Sprintf("%v", discordURL)
-				err := delivery.SendDiscord(urlStr, minion.Name, &m)
-				if err != nil {
-					runCtx.Stats.Errors++
-					step("DELIVERY ERROR", fmt.Sprintf("discord: %v", err), true)
-				} else {
-					if saveHash { runCtx.Stats.ItemsDelivered++ }
-					step("DELIVERY", fmt.Sprintf("Sent discord alert for '%s'", m.Title), false)
-				}
-			}
-
-			if reqURL, ok := t["http_request"]; ok {
-				urlStr := fmt.Sprintf("%v", reqURL)
-				wbConfig := &delivery.HTTPRequestConfig{URL: urlStr}
-				
-				if method, ok := t["method"].(string); ok {
-					wbConfig.Method = method
-				}
-				if tmpl, ok := t["payload_template"].(string); ok {
-					wbConfig.PayloadTemplate = tmpl
-				}
-				if headers, ok := t["headers"].(map[string]interface{}); ok {
-					wbConfig.Headers = make(map[string]string)
-					for k, v := range headers {
-						wbConfig.Headers[k] = fmt.Sprintf("%v", v)
+			for _, t := range targets {
+				if ntfyURL, ok := t["ntfy"]; ok {
+					urlStr := strictExpandEnv(fmt.Sprintf("%v", ntfyURL))
+					var auth *delivery.BasicAuth
+					if baData, ok := t["basic_auth"]; ok {
+						b, _ := yaml.Marshal(baData)
+						yaml.Unmarshal(b, &auth)
+						if auth != nil {
+							if auth.Username != "" { auth.Username = strictExpandEnv(auth.Username) }
+							if auth.Password != "" { auth.Password = strictExpandEnv(auth.Password) }
+						}
+					}
+					
+					var useMarkdown bool
+					if md, ok := t["markdown"].(bool); ok {
+						useMarkdown = md
+					}
+					
+					err := delivery.SendNtfy(urlStr, auth, minion.Name, &m, useMarkdown)
+					if err != nil {
+						runCtx.Stats.Errors++
+						step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
+					} else {
+						if saveHash { runCtx.Stats.ItemsDelivered++ }
+						step("DELIVERY", fmt.Sprintf("Sent ntfy alert for '%s'", m.Title), false)
 					}
 				}
-				if baData, ok := t["basic_auth"]; ok {
-					b, _ := yaml.Marshal(baData)
-					var ba delivery.BasicAuth
-					yaml.Unmarshal(b, &ba)
-					wbConfig.BasicAuth = &ba
+
+				if discordURL, ok := t["discord"]; ok {
+					urlStr := strictExpandEnv(fmt.Sprintf("%v", discordURL))
+					err := delivery.SendDiscord(urlStr, minion.Name, &m)
+					if err != nil {
+						runCtx.Stats.Errors++
+						step("DELIVERY ERROR", fmt.Sprintf("discord: %v", err), true)
+					} else {
+						if saveHash { runCtx.Stats.ItemsDelivered++ }
+						step("DELIVERY", fmt.Sprintf("Sent discord alert for '%s'", m.Title), false)
+					}
 				}
 
-				err := delivery.SendHTTPRequest(wbConfig, &m)
+				if reqURL, ok := t["http_request"]; ok {
+					urlStr := strictExpandEnv(fmt.Sprintf("%v", reqURL))
+					wbConfig := &delivery.HTTPRequestConfig{URL: urlStr}
+					
+					if method, ok := t["method"].(string); ok {
+						wbConfig.Method = method
+					}
+					if tmpl, ok := t["payload_template"].(string); ok {
+						wbConfig.PayloadTemplate = tmpl // template has its own {{.}} variable structure, no strictExpandEnv here
+					}
+					if headers, ok := t["headers"].(map[string]interface{}); ok {
+						wbConfig.Headers = make(map[string]string)
+						for k, v := range headers {
+							wbConfig.Headers[k] = strictExpandEnv(fmt.Sprintf("%v", v))
+						}
+					}
+					if baData, ok := t["basic_auth"]; ok {
+						b, _ := yaml.Marshal(baData)
+						var ba delivery.BasicAuth
+						yaml.Unmarshal(b, &ba)
+						if ba.Username != "" { ba.Username = strictExpandEnv(ba.Username) }
+						if ba.Password != "" { ba.Password = strictExpandEnv(ba.Password) }
+						wbConfig.BasicAuth = &ba
+					}
+
+					err := delivery.SendHTTPRequest(wbConfig, &m)
 				if err != nil {
 					runCtx.Stats.Errors++
 					step("DELIVERY ERROR", fmt.Sprintf("http_request: %v", err), true)

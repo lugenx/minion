@@ -281,10 +281,8 @@ func LoadMinion(filename string) (*MinionConfig, error) {
 		return nil, fmt.Errorf("failed to read minion file %s: %w", path, err)
 	}
 
-	expandedData := os.ExpandEnv(string(data))
-
 	var m MinionConfig
-	if err := yaml.Unmarshal([]byte(expandedData), &m); err != nil {
+	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse minion YAML %s: %w", path, err)
 	}
 	
