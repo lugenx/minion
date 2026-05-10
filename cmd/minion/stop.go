@@ -3,77 +3,73 @@ package minion
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"minion/internal/config"
+	"minion/internal/store"
 )
 
 var stopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stops the background daemon",
-	Args:  cobra.NoArgs,
+	Use:   "stop <filename>",
+	Short: "Aborts a currently running minion mid-execution",
+	Long: `If a minion is actively running (scraping) and you want to cancel it immediately, use this command.
+It will safely terminate the minion's browser and stop its execution pipeline.
+
+Usage:
+  minion stop event_finder`,
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		config.LoadEnv()
 
-		pidBytes, err := os.ReadFile(config.PIDPath)
+		target := args[0]
+		if !strings.HasSuffix(target, ".yaml") && !strings.HasSuffix(target, ".yml") {
+			target += ".yaml"
+		}
+
+		dbStore, err := store.InitStore(config.DBPath)
 		if err != nil {
-			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("Daemon is not running (no PID file found)."))
-			return
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("DB Error: %v", err)))
+			os.Exit(1)
 		}
+		defer dbStore.Close()
 
-		pidStr := strings.TrimSpace(string(pidBytes))
-		pid, err := strconv.Atoi(pidStr)
+		m, err := config.LoadMinion(target)
 		if err != nil {
-			fmt.Printf("Invalid PID in file: %v\n", err)
-			_ = os.Remove(config.PIDPath)
-			return
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("Minion %s not found.", target)))
+			os.Exit(1)
 		}
 
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			fmt.Printf("Failed to find process: %v\n", err)
-			_ = os.Remove(config.PIDPath)
-			return
-		}
-		
-		// Check if it's already dead
-		if err := process.Signal(syscall.Signal(0)); err != nil {
-			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("Daemon is not running (stale PID file)."))
-			_ = os.Remove(config.PIDPath)
-			return
-		}
-		
-		fmt.Printf("%s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Sending stop signal... waiting for current tasks to finish."))
-
-		if runtime.GOOS == "windows" {
-			exec.Command("taskkill", "/PID", pidStr).Run()
-		} else {
-			err = process.Signal(syscall.SIGTERM)
+		activeJobs, _ := dbStore.GetActiveJobs()
+		if !activeJobs[m.Filename] {
+			displayName := strings.TrimSuffix(m.Filename, ".yaml")
+			displayName = strings.TrimSuffix(displayName, ".yml")
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(fmt.Sprintf("%s is not currently running.", displayName)))
+			os.Exit(0)
 		}
 
-		if err != nil && !strings.Contains(err.Error(), "process already finished") {
-			fmt.Printf("Failed to send stop signal: %v\n", err)
-			return
-		} 
-		
-		// Wait for process to actually exit
+		if err := dbStore.QueueAbort(m.Filename); err != nil {
+			fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render(fmt.Sprintf("Failed to stop: %v", err)))
+			os.Exit(1)
+		}
+
+		displayName := strings.TrimSuffix(m.Filename, ".yaml")
+		displayName = strings.TrimSuffix(displayName, ".yml")
+		fmt.Printf(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(fmt.Sprintf("Stopping %s... ", displayName)))
+
+		// Wait for the job to actually die
 		for {
-			if err := process.Signal(syscall.Signal(0)); err != nil {
-				// Process has exited
+			jobs, _ := dbStore.GetActiveJobs()
+			if !jobs[m.Filename] {
 				break
 			}
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 
-		fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("Stopped Minion daemon successfully."))
+		fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("Stopped."))
 	},
 }
 

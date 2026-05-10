@@ -48,6 +48,18 @@ func InitStore(dbPath string) (*Store, error) {
 	CREATE TABLE IF NOT EXISTS active_jobs (
 		minion_filename TEXT PRIMARY KEY,
 		started_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS minion_status (
+		minion_filename TEXT PRIMARY KEY,
+		is_active BOOLEAN
+	);
+	CREATE TABLE IF NOT EXISTS run_queue (
+		minion_filename TEXT PRIMARY KEY,
+		requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS abort_queue (
+		minion_filename TEXT PRIMARY KEY,
+		requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	_, err = db.Exec(createTableQuery)
@@ -106,6 +118,74 @@ func (s *Store) MarkJobActive(minionFilename string) error {
 func (s *Store) MarkJobDone(minionFilename string) error {
 	_, err := s.db.Exec("DELETE FROM active_jobs WHERE minion_filename = ?", minionFilename)
 	return err
+}
+
+func (s *Store) SetMinionStatus(minionFilename string, isActive bool) error {
+	_, err := s.db.Exec("INSERT OR REPLACE INTO minion_status (minion_filename, is_active) VALUES (?, ?)", minionFilename, isActive)
+	return err
+}
+
+func (s *Store) GetMinionStatus(minionFilename string) bool {
+	var isActive bool
+	err := s.db.QueryRow("SELECT is_active FROM minion_status WHERE minion_filename = ?", minionFilename).Scan(&isActive)
+	if err != nil {
+		return false
+	}
+	return isActive
+}
+
+func (s *Store) QueueRun(minionFilename string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO run_queue (minion_filename, requested_at) VALUES (?, ?)", minionFilename, time.Now())
+	return err
+}
+
+func (s *Store) DequeueRun(minionFilename string) error {
+	_, err := s.db.Exec("DELETE FROM run_queue WHERE minion_filename = ?", minionFilename)
+	return err
+}
+
+func (s *Store) GetRunQueue() ([]string, error) {
+	rows, err := s.db.Query("SELECT minion_filename FROM run_queue ORDER BY requested_at ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var queue []string
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err == nil {
+			queue = append(queue, filename)
+		}
+	}
+	return queue, nil
+}
+
+func (s *Store) QueueAbort(minionFilename string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO abort_queue (minion_filename, requested_at) VALUES (?, ?)", minionFilename, time.Now())
+	return err
+}
+
+func (s *Store) DequeueAbort(minionFilename string) error {
+	_, err := s.db.Exec("DELETE FROM abort_queue WHERE minion_filename = ?", minionFilename)
+	return err
+}
+
+func (s *Store) GetAbortQueue() ([]string, error) {
+	rows, err := s.db.Query("SELECT minion_filename FROM abort_queue ORDER BY requested_at ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var queue []string
+	for rows.Next() {
+		var filename string
+		if err := rows.Scan(&filename); err == nil {
+			queue = append(queue, filename)
+		}
+	}
+	return queue, nil
 }
 
 func (s *Store) GetActiveJobs() (map[string]bool, error) {

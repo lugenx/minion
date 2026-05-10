@@ -6,12 +6,19 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+	
+	"minion/internal/config"
+	"minion/internal/tui"
 )
 
 var rootCmd = &cobra.Command{
 	Use:     "minion",
 	Short:   "Minion is an AI web monitoring agent",
 	Version: "2.4.2",
+	Run: func(cmd *cobra.Command, args []string) {
+		config.LoadEnv()
+		tui.Start()
+	},
 }
 
 func init() {

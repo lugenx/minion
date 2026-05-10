@@ -42,15 +42,15 @@ func runList() {
 
 	var minions []*config.MinionConfig
 	for _, m := range allMinions {
-		isEnabled := m.Enabled == nil || *m.Enabled
-		if isEnabled || showAll {
+		isDraft := m.Enabled != nil && !*m.Enabled
+		if !isDraft || showAll {
 			minions = append(minions, m)
 		}
 	}
 
 	if len(minions) == 0 {
 		if !showAll && len(allMinions) > 0 {
-			fmt.Printf("No active minions found. (Use `minion list -a` to see %d disabled minions)\n", len(allMinions))
+			fmt.Printf("No active minions found. (Use `minion ls -a` to see %d disabled minions)\n", len(allMinions))
 		} else {
 			fmt.Printf("No minions found in %s\n", config.MinionsDir)
 		}
@@ -60,23 +60,22 @@ func runList() {
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 	now := time.Now()
 
-	daemonRunning := false
-	if _, err := os.Stat(config.PIDPath); err == nil {
-		daemonRunning = true
-	}
-
 	dbStore, _ := store.InitStore(config.DBPath)
 	activeJobs := make(map[string]bool)
+	queueMap := make(map[string]bool)
 	if dbStore != nil {
 		activeJobs, _ = dbStore.GetActiveJobs()
-		dbStore.Close()
+		queue, _ := dbStore.GetRunQueue()
+		for _, q := range queue {
+			queueMap[q] = true
+		}
 	}
 
 	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("250"))
-	executingStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("13")) // Magenta
-	scheduledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green
-	stoppedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	idleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	executingStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")) // Orange for scraping/queued
+	scheduledStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")) // Green for UP
+	stoppedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Grey for DOWN
+	idleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Grey for Draft
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 
 	nameWidth := 6
@@ -95,28 +94,37 @@ func runList() {
 			schedWidth = len(sched)
 		}
 		
-		isConfiguredEnabled := true
-		if m.Enabled != nil && !*m.Enabled {
-			isConfiguredEnabled = false
+		isDraft := m.Enabled != nil && !*m.Enabled
+		isActive := false
+		if dbStore != nil {
+			isActive = dbStore.GetMinionStatus(m.Filename)
 		}
+		isRunning := activeJobs[m.Filename]
+		isQueued := queueMap[m.Filename]
 
-		isActive := activeJobs[m.Filename]
-
-		if isActive {
+		if isRunning {
 			if len("Running") > stateWidth {
 				stateWidth = len("Running")
 			}
-		} else if !daemonRunning {
-			if len("Engine Stopped") > nextRunWidth {
-				nextRunWidth = len("Engine Stopped")
+		} else if isQueued {
+			if len("Queued") > stateWidth {
+				stateWidth = len("Queued")
 			}
-			if len("Stopped") > stateWidth {
-				stateWidth = len("Stopped")
+		} else if isDraft {
+			if len("Disabled") > stateWidth {
+				stateWidth = len("Disabled")
 			}
-		} else if isConfiguredEnabled {
-			if len("Scheduled") > stateWidth {
-				stateWidth = len("Scheduled")
+		} else if isActive {
+			if len("Up") > stateWidth {
+				stateWidth = len("Up")
 			}
+		} else {
+			if len("Down") > stateWidth {
+				stateWidth = len("Down")
+			}
+		}
+
+		if !isDraft && isActive {
 			cronExpr, err := engine.ParseToCron(sched)
 			if err == nil {
 				s, parseErr := parser.Parse(cronExpr)
@@ -128,11 +136,8 @@ func runList() {
 				}
 			}
 		} else {
-			if len("N/A (Disabled)") > nextRunWidth {
-				nextRunWidth = len("N/A (Disabled)")
-			}
-			if len("Disabled") > stateWidth {
-				stateWidth = len("Disabled")
+			if len("-") > nextRunWidth {
+				nextRunWidth = len("-")
 			}
 		}
 
@@ -174,43 +179,50 @@ func runList() {
 	)
 
 	for _, m := range minions {
-		isConfiguredEnabled := true
-		if m.Enabled != nil && !*m.Enabled {
-			isConfiguredEnabled = false
+		isDraft := m.Enabled != nil && !*m.Enabled
+		isActive := false
+		if dbStore != nil {
+			isActive = dbStore.GetMinionStatus(m.Filename)
 		}
-
-		isActive := activeJobs[m.Filename]
+		isRunning := activeJobs[m.Filename]
+		isQueued := queueMap[m.Filename]
 
 		stateText := ""
 		var stateRender string
 
-		if !isConfiguredEnabled {
+		if isDraft {
 			stateText = "Disabled"
 			stateRender = idleStyle.Render(stateText)
-		} else if !daemonRunning {
-			stateText = "Stopped"
-			stateRender = stoppedStyle.Render(stateText)
-		} else if isActive {
+		} else if isRunning {
 			stateText = "Running"
 			stateRender = executingStyle.Render(stateText)
-		} else {
-			stateText = "Scheduled"
+		} else if isQueued {
+			stateText = "Queued"
+			stateRender = executingStyle.Render(stateText)
+		} else if isActive {
+			stateText = "Up"
 			stateRender = scheduledStyle.Render(stateText)
+		} else {
+			stateText = "Down"
+			stateRender = stoppedStyle.Render(stateText)
 		}
 		
-		padding := stateWidth - len(stateText)
-		statePadded := stateRender + strings.Repeat(" ", padding)
+		// Unstyled length calculation for perfect padding
+		// Fix because "▶" is 3 bytes but 1 rune width in some terminals, but let's use runes
+		runePadding := stateWidth - len([]rune(stateText))
+		if runePadding < 0 { runePadding = 0 }
+		statePadded := stateRender + strings.Repeat(" ", runePadding)
 
 		sched := engine.ExtractSchedule(m)
 		cronExpr, err := engine.ParseToCron(sched)
 		nextRunText := ""
 		nextRunRender := ""
 		
-		if !isConfiguredEnabled {
-			nextRunText = "N/A (Disabled)"
+		if isDraft {
+			nextRunText = "-"
 			nextRunRender = idleStyle.Render(nextRunText)
-		} else if !daemonRunning {
-			nextRunText = "Engine Stopped"
+		} else if !isActive {
+			nextRunText = "-"
 			nextRunRender = stoppedStyle.Render(nextRunText)
 		} else if err == nil {
 			s, parseErr := parser.Parse(cronExpr)
@@ -244,5 +256,8 @@ func runList() {
 		)
 	}
 	
+	if dbStore != nil {
+		dbStore.Close()
+	}
 	fmt.Println()
 }

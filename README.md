@@ -2,7 +2,7 @@
 
 Minion is a lightweight tool for automating web research.
 
-Instead of manually checking websites for updates, you create simple YAML scripts to act as your autonomous agents. Minion uses an explicit "Execution Graph" architecture. You command the agent step-by-step to browse websites, study the text to extract specific information, and trigger webhook alerts when it finds a match.
+Instead of manually checking websites for updates, you can use the interactive Terminal User Interface (TUI) or create simple YAML scripts to act as your autonomous agents. Minion uses an explicit "Execution Graph" architecture. You command the agent step-by-step to browse websites, study the text to extract specific information, and trigger webhook alerts when it finds a match.
 
 ---
 
@@ -41,11 +41,18 @@ Invoke-WebRequest -Uri "https://github.com/lugenx/minion/releases/latest/downloa
 
 When you run `minion` for the first time, it automatically creates a `~/.config/minion/` folder. This is where your minions live.
 
-### 1. Add your API Keys
-Open `~/.config/minion/.env` and add your OpenRouter API key so your minions can process text. You can also securely store any Webhook passwords here.
+### 1. Interactive TUI
+Minion ships with a fully interactive Terminal User Interface. Simply run `minion` in your terminal to open the dashboard. From there, you can:
+- Toggle minions on and off
+- View live step-by-step execution logs
+- Edit your `.env` secrets
+- Build new minion configurations using the visual builder
 
-### 2. Create a Mission
-Every file you put in `~/.config/minion/minions/` is a new minion agent. 
+### 2. Add your API Keys
+Open the TUI and press `v` to edit your environment variables, or manually open `~/.config/minion/.env` to add your OpenRouter API key so your minions can process text. You can also securely store any Webhook passwords here.
+
+### 3. Create a Mission
+You can build a minion directly within the TUI (press `n` for new, or `e` to edit), or manually place YAML files in `~/.config/minion/minions/`. 
 
 Minion operates on a linear stream. It gathers all URLs from your search and browse blocks, and then passes them one-by-one through the rest of the pipeline. Here is a complete example:
 
@@ -103,15 +110,16 @@ mission:
       # - minion: "my_worker_minion_filename"
 ```
 
-### 3. CLI Commands
-Use these commands to manage your tasks:
+### 4. CLI Commands
+Use these commands to manage your tasks from the terminal:
 
-*   **`minion test <filename>`** - Instantly runs a specific minion, ignoring its schedule. Outputs a step-by-step execution log.
-*   **`minion run -d`** - Starts the engine silently in the background. It will run your active minions on their designated schedules.
-*   **`minion log <filename>`** - Follows the live step-by-step execution log for a specific minion while it runs in the background. (Leave filename blank to see master daemon log).
-*   **`minion list`** - Displays a table of all your minions, their current state (Scheduled/Running/Stopped), and their next scheduled run time. (Use `-a` to show disabled minions).
+*   **`minion`** - Launches the interactive Terminal User Interface (TUI).
+*   **`minion up [filename|all]`** - Schedules a minion to run in the background. Automatically starts the master daemon if needed.
+*   **`minion down [filename|all]`** - Unschedules a minion. If no arguments are provided, it cleanly halts the background daemon.
+*   **`minion run <filename>`** - Queues a specific minion to execute immediately in the background daemon.
+*   **`minion stop <filename>`** - Safely aborts a currently running minion mid-execution.
+*   **`minion ls`** - Displays a table of all your minions, their current state (Up/Down/Running), and their next scheduled run time.
 *   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen. (e.g. `minion clear 23` or `minion clear --all`)
-*   **`minion stop`** - Halts the background daemon.
 
 ---
 
