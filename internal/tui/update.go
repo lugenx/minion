@@ -649,7 +649,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										}
 									}
 									if activeCount == 0 && m.daemonRunning {
-										c := exec.Command(os.Args[0], "stop")
+										c := exec.Command(os.Args[0], "down")
 										_ = c.Run()
 										m.daemonRunning = false
 									}
@@ -811,7 +811,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 											}
 										}
 										if activeCount == 0 && m.daemonRunning {
-											c := exec.Command(os.Args[0], "stop")
+											c := exec.Command(os.Args[0], "down")
 											_ = c.Run()
 											m.daemonRunning = false
 										}
