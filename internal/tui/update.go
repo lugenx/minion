@@ -70,7 +70,7 @@ func (m *model) syncBuilderViewport() {
 		cursorLine := -1
 		if isEditMode {
 			for i, l := range lines {
-				if strings.HasPrefix(l, "> ") || strings.Contains(l, "> ") || strings.Contains(l, "┃ ") { // "> " or "┃ " (textarea cursor)
+				if strings.HasPrefix(l, "> ") || strings.Contains(l, "> ") || strings.Contains(l, "┃ ") || strings.Contains(l, "Step type") {
 					cursorLine = i
 					break
 				}
@@ -82,8 +82,8 @@ func (m *model) syncBuilderViewport() {
 		if isEditMode && cursorLine != -1 {
 			if cursorLine < m.builderViewport.YOffset {
 				m.builderViewport.SetYOffset(cursorLine)
-			} else if cursorLine >= m.builderViewport.YOffset + m.builderViewport.Height {
-				m.builderViewport.SetYOffset(cursorLine - m.builderViewport.Height + 1)
+			} else if cursorLine+10 >= m.builderViewport.YOffset+m.builderViewport.Height {
+				m.builderViewport.SetYOffset(cursorLine + 10 - m.builderViewport.Height + 1)
 			}
 		}
 	} else if m.state == stateDashboard && m.focusRight {
