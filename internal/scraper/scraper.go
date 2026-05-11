@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -27,8 +28,8 @@ func getClient(timeoutSec int) *http.Client {
 	}
 }
 
-func FetchAndSanitize(targetURL string, timeoutSec int) (string, string, error) {
-	req, err := http.NewRequest("GET", targetURL, nil)
+func FetchAndSanitize(ctx context.Context, targetURL string, timeoutSec int) (string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -106,9 +107,9 @@ func GenerateContentHash(text string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func FetchRenderedAndSanitize(browser *rod.Browser, targetURL string, timeoutSec int) (string, string, error) {
+func FetchRenderedAndSanitize(ctx context.Context, browser *rod.Browser, targetURL string, timeoutSec int) (string, string, error) {
 	// Create an incognito session for true isolation, with a strict timeout for this PAGE only
-	page, err := stealth.Page(browser.Timeout(time.Duration(timeoutSec) * time.Second))
+	page, err := stealth.Page(browser.Context(ctx).Timeout(time.Duration(timeoutSec) * time.Second))
 	if err != nil {
 		return "", "", fmt.Errorf("stealth page failed: %w", err)
 	}
@@ -132,8 +133,8 @@ func FetchRenderedAndSanitize(browser *rod.Browser, targetURL string, timeoutSec
 	return sanitizeHTML(strings.NewReader(html), targetURL)
 }
 
-func ExtractLinksRendered(browser *rod.Browser, targetURL, pattern string, timeoutSec int) ([]string, error) {
-	page, err := stealth.Page(browser.Timeout(time.Duration(timeoutSec) * time.Second))
+func ExtractLinksRendered(ctx context.Context, browser *rod.Browser, targetURL, pattern string, timeoutSec int) ([]string, error) {
+	page, err := stealth.Page(browser.Context(ctx).Timeout(time.Duration(timeoutSec) * time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("stealth page failed: %w", err)
 	}
@@ -189,8 +190,8 @@ func ExtractLinksRendered(browser *rod.Browser, targetURL, pattern string, timeo
 	return links, nil
 }
 
-func ExtractLinks(targetURL, pattern string, timeoutSec int) ([]string, error) {
-	req, err := http.NewRequest("GET", targetURL, nil)
+func ExtractLinks(ctx context.Context, targetURL, pattern string, timeoutSec int) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +244,10 @@ func ExtractLinks(targetURL, pattern string, timeoutSec int) ([]string, error) {
 	return links, nil
 }
 
-func SearchDuckDuckGo(query string, maxResults int, timeoutSec int) ([]string, error) {
+func SearchDuckDuckGo(ctx context.Context, query string, maxResults int, timeoutSec int) ([]string, error) {
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 	
-	req, err := http.NewRequest("GET", searchURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return nil, err
 	}

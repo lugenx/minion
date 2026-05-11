@@ -162,19 +162,45 @@ func (s *Store) DequeueRun(minionFilename string) error {
 }
 
 func (s *Store) GetRunQueue() ([]string, error) {
-	rows, err := s.db.Query("SELECT minion_filename FROM run_queue ORDER BY requested_at ASC")
+	rows, err := s.db.Query("SELECT minion_filename, requested_at FROM run_queue ORDER BY requested_at ASC")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	var queue []string
+	var toDequeue []string
+
 	for rows.Next() {
 		var filename string
-		if err := rows.Scan(&filename); err == nil {
+		var reqAtStr string
+		if err := rows.Scan(&filename, &reqAtStr); err == nil {
+			var parsed time.Time
+			var parseErr error
+
+			// Try standard formats
+			parsed, parseErr = time.Parse(time.RFC3339Nano, reqAtStr)
+			if parseErr != nil {
+				parsed, parseErr = time.Parse("2006-01-02 15:04:05", reqAtStr)
+			}
+			if parseErr != nil {
+				parsed, parseErr = time.Parse("2006-01-02 15:04:05.999999999-07:00", reqAtStr)
+			}
+
+			// Defense in depth: silently discard if stale
+			if parseErr == nil && time.Since(parsed) >= 2*time.Minute {
+				toDequeue = append(toDequeue, filename)
+				continue
+			}
+
 			queue = append(queue, filename)
 		}
 	}
+
+	for _, f := range toDequeue {
+		_, _ = s.db.Exec("DELETE FROM run_queue WHERE minion_filename = ?", f)
+	}
+
 	return queue, nil
 }
 
@@ -189,19 +215,45 @@ func (s *Store) DequeueAbort(minionFilename string) error {
 }
 
 func (s *Store) GetAbortQueue() ([]string, error) {
-	rows, err := s.db.Query("SELECT minion_filename FROM abort_queue ORDER BY requested_at ASC")
+	rows, err := s.db.Query("SELECT minion_filename, requested_at FROM abort_queue ORDER BY requested_at ASC")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	var queue []string
+	var toDequeue []string
+
 	for rows.Next() {
 		var filename string
-		if err := rows.Scan(&filename); err == nil {
+		var reqAtStr string
+		if err := rows.Scan(&filename, &reqAtStr); err == nil {
+			var parsed time.Time
+			var parseErr error
+
+			// Try standard formats
+			parsed, parseErr = time.Parse(time.RFC3339Nano, reqAtStr)
+			if parseErr != nil {
+				parsed, parseErr = time.Parse("2006-01-02 15:04:05", reqAtStr)
+			}
+			if parseErr != nil {
+				parsed, parseErr = time.Parse("2006-01-02 15:04:05.999999999-07:00", reqAtStr)
+			}
+
+			// Defense in depth: silently discard if stale
+			if parseErr == nil && time.Since(parsed) >= 2*time.Minute {
+				toDequeue = append(toDequeue, filename)
+				continue
+			}
+
 			queue = append(queue, filename)
 		}
 	}
+
+	for _, f := range toDequeue {
+		_, _ = s.db.Exec("DELETE FROM abort_queue WHERE minion_filename = ?", f)
+	}
+
 	return queue, nil
 }
 

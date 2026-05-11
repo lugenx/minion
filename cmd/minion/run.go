@@ -237,6 +237,10 @@ func runDaemon() {
 			syncFleet(daemonCtx, dbStore, llmEval, c, scheduledJobs, activeCancels)
 			processRunQueue(daemonCtx, dbStore, llmEval, activeCancels)
 			processAbortQueue(dbStore, activeCancels)
+			
+			if active, _ := dbStore.GetActiveMinions(); len(active) == 0 {
+				return
+			}
 		case <-sigChan:
 			fmt.Println()
 			fmt.Printf("%s %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(time.Now().Format("2006-01-02 15:04:05")), lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Shutting down... waiting for running tasks to finish"))
@@ -301,6 +305,12 @@ func processRunQueue(ctx context.Context, dbStore *store.Store, llmEval *llm.Eva
 	for _, filename := range queue {
 		m, err := config.LoadMinion(filename)
 		if err == nil {
+			if !dbStore.GetMinionStatus(m.Filename) {
+				logMessage("WARN", m.Name, "Cannot trigger minion because it is unscheduled/inactive.")
+				_ = dbStore.DequeueRun(filename)
+				continue
+			}
+
 			logMessage("INFO", m.Name, "Triggering immediate manual execution from queue.")
 			// Execute in background routine so we don't block the 1s loop
 			go executeMinion(ctx, dbStore, llmEval, m, "manual", activeCancels)

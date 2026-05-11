@@ -79,18 +79,6 @@ Usage:
 			}
 			os.Exit(1)
 		}
-
-		// Auto-kill daemon check
-		activeCount := 0
-		for _, m := range minions {
-			if dbStore.GetMinionStatus(m.Filename) {
-				activeCount++
-			}
-		}
-
-		if activeCount == 0 && isDaemonRunning() {
-			killDaemon()
-		}
 	},
 }
 

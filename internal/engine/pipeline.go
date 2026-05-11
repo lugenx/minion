@@ -188,7 +188,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 					time.Sleep(time.Duration(rand.Intn(3)+1) * time.Second)
 				}
 				step("SEARCH", fmt.Sprintf("Query: %s", q), false)
-				urls, err := scraper.SearchDuckDuckGo(q, limit, 15)
+				urls, err := scraper.SearchDuckDuckGo(ctx, q, limit, 15)
 				if err != nil {
 					runCtx.Stats.Errors++
 					step("SEARCH ERROR", err.Error(), true)
@@ -238,9 +238,9 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 									step("BROWSE ERROR", bErr.Error(), true)
 									continue
 								}
-								links, err = scraper.ExtractLinksRendered(browser, u, matchPattern, globalTimeout)
+								links, err = scraper.ExtractLinksRendered(ctx, browser, u, matchPattern, globalTimeout)
 							} else {
-								links, err = scraper.ExtractLinks(u, matchPattern, globalTimeout)
+								links, err = scraper.ExtractLinks(ctx, u, matchPattern, globalTimeout)
 							}
 							if err != nil {
 								runCtx.Stats.Errors++
@@ -391,6 +391,9 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 			var nextArray []types.Item
 			for _, m := range matchArray {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				dropped := false
 				content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
 				
@@ -444,6 +447,9 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 			var nextArray []types.Item
 			for _, m := range matchArray {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				if m.URL == "" { continue }
 
 				isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
@@ -487,9 +493,9 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 						step("SCRAPE ERROR", bErr.Error(), true)
 						continue
 					}
-					text, hash, fetchErr = scraper.FetchRenderedAndSanitize(browser, m.URL, timeoutSec)
+					text, hash, fetchErr = scraper.FetchRenderedAndSanitize(ctx, browser, m.URL, timeoutSec)
 				} else {
-					text, hash, fetchErr = scraper.FetchAndSanitize(m.URL, timeoutSec)
+					text, hash, fetchErr = scraper.FetchAndSanitize(ctx, m.URL, timeoutSec)
 				}
 				if fetchErr != nil {
 					runCtx.Stats.Errors++
@@ -534,6 +540,9 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 			var nextArray []types.Item
 			for _, m := range matchArray {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				content := m.Text
 				if content == "" {
 					content = "URL: " + m.URL
@@ -642,6 +651,9 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 	}
 
 	for _, m := range matchArray {
+		if ctx.Err() != nil {
+			return
+		}
 		isDeepLink := m.ParentURL != "" && m.URL != m.ParentURL
 
 		if isDeepLink {

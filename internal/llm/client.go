@@ -68,7 +68,9 @@ func performChatCompletion(ctx context.Context, model string, sysPrompt string, 
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 		req.Header.Set("Content-Type", "application/json")
 
-		client := &http.Client{}
+		client := &http.Client{
+			Timeout: 15 * time.Second,
+		}
 		resp, err := client.Do(req)
 
 		var retryable bool
