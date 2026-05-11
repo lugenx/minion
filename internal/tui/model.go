@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -142,6 +143,12 @@ func (m model) UpdatePublic(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) loadState() {
 	allMinions, _ := config.LoadAllMinions()
 	m.minions = allMinions
+
+	sort.SliceStable(m.minions, func(i, j int) bool {
+		iDisabled := m.minions[i].Enabled != nil && !*m.minions[i].Enabled
+		jDisabled := m.minions[j].Enabled != nil && !*m.minions[j].Enabled
+		return !iDisabled && jDisabled
+	})
 
 	if _, err := os.Stat(config.PIDPath); err == nil {
 		m.daemonRunning = true

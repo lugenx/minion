@@ -294,6 +294,9 @@ func (m model) renderHeader() string {
 			}
 			
 			if isDraft {
+				if i != m.cursor {
+					nameStyle = lipgloss.NewStyle().Foreground(colorMuted)
+				}
 				dot = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("○")
 				schedStatus = mutedStyle.Render("Disabled")
 				nextStatus = mutedStyle.Render("-")
