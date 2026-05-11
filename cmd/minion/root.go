@@ -14,7 +14,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:     "minion",
 	Short:   "Minion is an AI web monitoring agent",
-	Version: "2.4.2",
+	Version: "3.0.0",
 	Run: func(cmd *cobra.Command, args []string) {
 		config.LoadEnv()
 		tui.Start()
@@ -53,7 +53,7 @@ evaluates the survivors using an LLM via OpenRouter, and sends matches to a webh
 		subStyle.Render("Quick Start"),
 		highlightStyle.Render("nano ~/.config/minion/.env"),
 		highlightStyle.Render("nano ~/.config/minion/minions/my_task.yaml"),
-		highlightStyle.Render("minion test my_task"),
+		highlightStyle.Render("minion run my_task"),
 		highlightStyle.Render("minion run -d"),
 	)
 }

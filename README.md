@@ -41,18 +41,19 @@ Invoke-WebRequest -Uri "https://github.com/lugenx/minion/releases/latest/downloa
 
 When you run `minion` for the first time, it automatically creates a `~/.config/minion/` folder. This is where your minions live.
 
-### 1. Interactive TUI
-Minion ships with a fully interactive Terminal User Interface. Simply run `minion` in your terminal to open the dashboard. From there, you can:
-- Toggle minions on and off
-- View live step-by-step execution logs
-- Edit your `.env` secrets
-- Build new minion configurations using the visual builder
+```
+minion          # Open the dashboard
+v               # Add your API key
+n               # Create your first minion
+space           # Turn it on
+l               # Watch it run
+```
 
-### 2. Add your API Keys
-Open the TUI and press `v` to edit your environment variables, or manually open `~/.config/minion/.env` to add your OpenRouter API key so your minions can process text. You can also securely store any Webhook passwords here.
+### 1. Add your API Key
+Open the TUI (run `minion`) and press `v` to edit your environment variables, or manually open `~/.config/minion/.env`. Add your OpenRouter API key so your minions can process text. You can also securely store any webhook passwords here.
 
-### 3. Create a Mission
-You can build a minion directly within the TUI (press `n` for new, or `e` to edit), or manually place YAML files in `~/.config/minion/minions/`. 
+### 2. Create a Minion
+Press `n` in the TUI to build one visually, or write a YAML file in `~/.config/minion/minions/`. Press `e` to edit an existing one.
 
 Minion operates on a linear stream. It gathers all URLs from your search and browse blocks, and then passes them one-by-one through the rest of the pipeline. Here is a complete example:
 
@@ -110,7 +111,13 @@ mission:
       # - minion: "my_worker_minion_filename"
 ```
 
-### 4. CLI Commands
+### 3. Run It
+Press `space` on a minion to turn it on (the daemon starts automatically), or press `r` to run it once immediately.
+
+### 4. Watch It Work
+Press `l` to see live step-by-step logs as the minion runs.
+
+### 5. CLI Commands
 Use these commands to manage your tasks from the terminal:
 
 *   **`minion`** - Launches the interactive Terminal User Interface (TUI).
@@ -119,7 +126,8 @@ Use these commands to manage your tasks from the terminal:
 *   **`minion run <filename>`** - Queues a specific minion to execute immediately in the background daemon.
 *   **`minion stop <filename>`** - Safely aborts a currently running minion mid-execution.
 *   **`minion ls`** - Displays a table of all your minions, their current state (Up/Down/Running), and their next scheduled run time.
-*   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen. (e.g. `minion clear 23` or `minion clear --all`)
+*   **`minion log [filename]`** - Follows the live output logs of a specific minion, or the master daemon if no arguments are provided.
+*   **`minion clear <filename>`** - Wipes the database memory for a specific minion so it will re-evaluate items it has already seen. (e.g. `minion clear price_tracker` or `minion clear --all`)
 
 ---
 
@@ -180,7 +188,7 @@ If you used `render: true` in the browse step, the scraper will automatically us
 The core of the engine. The minion reads the data and extracts matches based on your plain-English task. 
 Minions are inherently aware of the current date and time. You can safely use natural instructions like *"Must happen tomorrow"* or *"Drop events in the past"* in your tasks.
 
-By default, the engine outputs structured alerts. You can also use `format: "plain_text"` to output raw text paragraphs (like essays or poems).
+By default, the engine outputs structured alerts. *(Planned: `format: "plain_text"` will output raw text paragraphs instead.)*
 ```yaml
 - study:
     task: "Find mentions of Apple Inc. Ignore hardware releases."
@@ -268,12 +276,13 @@ mission:
 
 ---
 
-## Smart Caching Architecture
+## Smart Notifications
 
-Minion uses a highly robust, deterministic SQLite database to prevent notification spam and save you money on AI API calls.
+Minion won't spam you.
 
-1. **Page-Level Content Hashing:** When Minion scrapes a webpage, it extracts the visible text, aggressively masks out web noise (like "Updated 5 mins ago" or "100 Views"), and generates a deterministic math hash (SHA-256) of the core content. If the page hasn't meaningfully changed since the last run, the engine drops it immediately. **It does not call the LLM.** This saves you massive amounts of time and money on unchanged websites while safely capturing critical changes like price drops or updated event times.
-2. **The AI Firewall (`dropped_urls`):** When the AI *does* study a page, it decides if the page is fundamentally off-topic. If it is, the AI flags it as a `permanent_drop`. The engine logs that URL to a firewall database and will never scrape it again.
+- **Skips unchanged pages.** It remembers the content of every page it scrapes. If nothing meaningful changed since the last check, it moves on without calling the AI. You don't get notified about "last updated 5 mins ago" noise.
+- **Blocks off-topic pages permanently.** If the AI decides a page is not relevant to your task, it marks it forever. That URL will never be scraped again.
+- **You only see what matters.** The result: a notification when something actually changes or a genuine match is found. Nothing else.
 
 ---
 
