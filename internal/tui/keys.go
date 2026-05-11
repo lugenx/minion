@@ -43,7 +43,7 @@ var keys = keyMap{
 	),
 	Toggle: key.NewBinding(
 		key.WithKeys(" "),
-		key.WithHelp("space", "up/down"),
+		key.WithHelp("space", "toggle"),
 	),
 	Enter: key.NewBinding(
 		key.WithKeys("enter", "right"),

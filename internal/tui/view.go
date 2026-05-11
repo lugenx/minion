@@ -452,10 +452,11 @@ func wrapLines(text string, width int) []string {
 	if !isEditMode && m.state == stateDashboard {
 		var actions string
 			if m.focusRight {
-				actions = mutedStyle.Render("Press ") + lipgloss.NewStyle().Foreground(colorAccent).Render("space") + mutedStyle.Render(" up/down • ") + 
+				actions = mutedStyle.Render("Press ") + lipgloss.NewStyle().Foreground(colorAccent).Render("space") + mutedStyle.Render(" toggle • ") + 
 						  lipgloss.NewStyle().Foreground(colorAccent).Render("r") + mutedStyle.Render(" run • ") + 
 						  lipgloss.NewStyle().Foreground(colorAccent).Render("s") + mutedStyle.Render(" stop • ") + 
-						  lipgloss.NewStyle().Foreground(colorAccent).Render("l") + mutedStyle.Render(" logs")
+						  lipgloss.NewStyle().Foreground(colorAccent).Render("l") + mutedStyle.Render(" logs • ") +
+						  lipgloss.NewStyle().Foreground(colorAccent).Render("e") + mutedStyle.Render(" edit")
 			} else {
 			actions = mutedStyle.Render("Press Enter to view details & actions")
 		}
