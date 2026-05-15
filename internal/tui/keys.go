@@ -28,9 +28,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-func (k keyMap) RightFocusHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Back, k.Quit}
-}
 
 var keys = keyMap{
 	Up: key.NewBinding(

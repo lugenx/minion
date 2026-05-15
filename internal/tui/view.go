@@ -8,9 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/robfig/cron/v3"
 	
-	"minion/internal/config"
 	"minion/internal/engine"
-	"minion/internal/store"
 )
 
 var (
@@ -33,71 +31,48 @@ var (
 	paneStyle     = lipgloss.NewStyle().Padding(0, 1)
 )
 
+func contentHeight(avail int) (_, h int) {
+	h = avail
+	if h < 3 { h = 3 }
+	return
+}
+
 func (m model) View() string {
 	if m.width == 0 {
 		return ""
 	}
 
-	header := m.renderHeader()
-	footer := m.renderFooter()
+	contentW := m.width - 2
+	if contentW < 0 { contentW = 0 }
+	innerW := contentW - 2
+	if innerW < 0 { innerW = 0 }
 
-	mainH := m.height - lipgloss.Height(header) - lipgloss.Height(footer) - 2 // -2 for top and bottom margins
-	if mainH < 0 {
-		mainH = 0
-	}
+	header := m.renderHeader(contentW)
+	footer := m.renderFooter(contentW)
 
-	isWide := m.width >= 80
+	_, contentH := contentHeight(m.mainH)
 
 	var content string
-
-		if isWide {
-			leftW := 56
-			rightW := m.width - leftW - 1
-		
-		leftPane := paneStyle.Width(leftW - 2).Height(mainH).Render(m.renderList(leftW-4, mainH))
-		
-		var rightContent string
-		switch m.state {
-		case stateDashboard:
-			rightContent = m.renderBuilder(rightW-4, mainH, false)
-		case stateForm:
-			rightContent = m.renderBuilder(rightW-4, mainH, true)
-		case stateLogs:
-			rightContent = m.renderLogs(rightW-4, mainH)
-		case stateEnv:
-			rightContent = m.renderEnvEditor(rightW-4, mainH)
-		}
-		rightPane := paneStyle.Width(rightW - 2).Height(mainH).Render(rightContent)
-
-		var borderStr string
-		if mainH > 0 {
-			borderStr = strings.Repeat("│\n", mainH-1) + "│"
-		}
-		border := borderStyle.Render(borderStr)
-		content = lipgloss.JoinHorizontal(lipgloss.Top, leftPane, border, rightPane)
-	} else {
-		w := m.width - 2
-		if w < 0 { w = 0 }
-		innerW := w - 2
-		if innerW < 0 { innerW = 0 }
-		switch m.state {
-		case stateDashboard:
-			content = paneStyle.Width(w).Height(mainH).Render(m.renderList(innerW, mainH))
-		case stateForm:
-			content = paneStyle.Width(w).Height(mainH).Render(m.renderBuilder(innerW, mainH, true))
-		case stateLogs:
-			content = paneStyle.Width(w).Height(mainH).Render(m.renderLogs(innerW, mainH))
-		case stateEnv:
-			content = paneStyle.Width(w).Height(mainH).Render(m.renderEnvEditor(innerW, mainH))
-		}
+	switch m.state {
+	case stateDashboard:
+		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderList(innerW, contentH))
+	case stateDetail:
+		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.builderViewport.View())
+	case stateForm:
+		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderBuilder(innerW, contentH, true))
+	case stateLogs:
+		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderLogs(innerW, contentH))
+	case stateEnv:
+		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderEnvEditor(innerW, contentH))
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, " ", header, content, footer, " ")
+	body := header + "\n" + content + "\n" + footer
+	return lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(body)
 }
 
 func (m model) DebugParts() (string, string, string, int) {
-	header := m.renderHeader()
-	footer := m.renderFooter()
+	header := m.renderHeader(m.width)
+	footer := m.renderFooter(m.width)
 	mainH := m.height - lipgloss.Height(header) - lipgloss.Height(footer)
 	if mainH < 0 { mainH = 0 }
 	
@@ -127,7 +102,7 @@ func (m model) DebugParts() (string, string, string, int) {
 	return header, footer, content, mainH
 }
 
-func (m model) renderHeader() string {
+func (m model) renderHeader(w int) string {
 	var status string
 	activeCount := len(m.activeJobs)
 
@@ -153,34 +128,34 @@ func (m model) renderHeader() string {
 	}
 
 	title := titleStyle.Render("Minions")
-	
-	space := m.width - lipgloss.Width(title) - lipgloss.Width(status) - 4
+
+	innerW := w - 2
+	space := innerW - lipgloss.Width(title) - lipgloss.Width(status)
 	if space < 0 { space = 0 }
-	
-	header := fmt.Sprintf("  %s%s%s  ", title, strings.Repeat(" ", space), status)
-	border := borderStyle.Render(strings.Repeat("─", m.width))
-	
-	return header + "\n" + border
+
+	barStyle := lipgloss.NewStyle().Padding(0, 1).Width(w)
+	headerRow := barStyle.Render(title + strings.Repeat(" ", space) + status)
+	border := borderStyle.Render(strings.Repeat("─", w))
+	return border + "\n" + headerRow + "\n" + border
 }
 
-	func (m model) renderFooter() string {
-		border := borderStyle.Render(strings.Repeat("─", m.width))
+	func (m model) renderFooter(w int) string {
+		border := borderStyle.Render(strings.Repeat("─", w))
 		
 		var helpView string
 		if m.state == stateDashboard {
-			if m.confirmDelete && !m.focusRight {
+			if m.confirmDelete {
 				filename := ""
 				if len(m.minions) > 0 {
 					filename = m.minions[m.cursor].Filename
 				}
 				helpView = lipgloss.NewStyle().Foreground(colorError).Bold(true).Render(fmt.Sprintf("[!] Delete minion file '%s'? Press 'y' to confirm, or 'esc' to cancel.", filename))
-			} else if m.focusRight {
-				m.help.ShortSeparator = " • "
-				helpView = m.help.ShortHelpView(m.keys.RightFocusHelp())
 			} else {
 				m.help.ShortSeparator = " • "
 				helpView = m.help.View(m.keys)
 			}
+		} else if m.state == stateDetail {
+			helpView = mutedStyle.Render("esc back • space toggle • r run • s stop • l logs • e edit")
 		} else if m.state == stateForm {
 			if m.confirmDelete {
 				helpView = lipgloss.NewStyle().Foreground(colorError).Bold(true).Render("[!] Delete this item? Press 'y' to confirm, or 'esc' to cancel.")
@@ -191,11 +166,12 @@ func (m model) renderHeader() string {
 			}
 		} else {
 			m.help.ShortSeparator = " • "
-			helpView = m.help.View(m.keys) // fallback
+			helpView = m.help.View(m.keys)
 		}
-	
-		return border + "\n  " + helpView
-	}
+
+		footerLine := lipgloss.NewStyle().Padding(0, 1).Width(w).Render(helpView)
+	return border + "\n" + footerLine + "\n" + border
+}
 
 	func formatNextRun(d time.Duration) string {
 	if d < 0 {
@@ -219,80 +195,75 @@ func (m model) renderHeader() string {
 		if len(m.minions) == 0 {
 			return mutedStyle.Render("No minions found.\nPress 'n' to create one.")
 		}
-		
-		showStatus := w > 35
-		
-		schedW := 15
-		nextW := 13 // Expanded to fit format "02 Jan 15:04"
-	
-		var headerLines []string
-		if showStatus {
-			nameW := w - 6 - schedW - nextW
-			if nameW < 5 { nameW = 5 }
-			
-			nameHPad := nameW - lipgloss.Width("NAME")
-			if nameHPad < 0 { nameHPad = 0 }
-			
-			schedHPad := schedW - lipgloss.Width("SCHEDULE")
-			if schedHPad < 0 { schedHPad = 0 }
-			
-			headerLines = append(headerLines, fmt.Sprintf("    %s%s %s%s %s", 
-				headerStyle.Render("NAME"), strings.Repeat(" ", nameHPad), 
-				headerStyle.Render("SCHEDULE"), strings.Repeat(" ", schedHPad),
-				headerStyle.Render("NEXT RUN")))
-		} else {
-			headerLines = append(headerLines, "  "+headerStyle.Render("NAME"))
+
+		overhead := 6
+		schedW := 13
+		nextW := 11
+		maxNameW := 30
+		nameW := w - overhead - schedW - nextW
+		if nameW > maxNameW {
+			nameW = maxNameW
 		}
+		if nameW < 8 {
+			excess := 8 - nameW
+			schedW -= excess / 2
+			nextW -= (excess + 1) / 2
+			if schedW < 8 { schedW = 8 }
+			if nextW < 6 { nextW = 6 }
+			nameW = w - overhead - schedW - nextW
+		}
+		if nameW < 4 { nameW = 4 }
+
+		var headerLines []string
+		nameHPad := nameW - lipgloss.Width("NAME")
+		if nameHPad < 0 { nameHPad = 0 }
+		schedHPad := schedW - lipgloss.Width("SCHEDULE")
+		if schedHPad < 0 { schedHPad = 0 }
+		headerLines = append(headerLines, fmt.Sprintf("    %s%s %s%s %s",
+			headerStyle.Render("NAME"), strings.Repeat(" ", nameHPad),
+			headerStyle.Render("SCHEDULE"), strings.Repeat(" ", schedHPad),
+			headerStyle.Render("NEXT RUN")))
 		headerLines = append(headerLines, "")
-	
+
 		var minionRows []string
-		
+
 		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 		now := time.Now()
-		
+
 		for i, mc := range m.minions {
 			cursor := " "
 			nameStyle := lipgloss.NewStyle().Foreground(colorNormal)
-			
+
 			if i == m.cursor {
-				if m.focusRight {
-					nameStyle = lipgloss.NewStyle().Foreground(colorNormal).Background(colorMuted).Bold(true)
-					cursor = "▌"
-				} else {
-					// Minion Theme: Yellow text on Jeans Blue border indicator
-					nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
-					cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("68")).Render("▌")
-				}
+				nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+				cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("68")).Render("▌")
 			}
-	
-			dbStore, _ := store.InitStore(config.DBPath)
+
 			isStarted := false
-			if dbStore != nil {
-				isStarted = dbStore.GetMinionStatus(mc.Filename)
-				dbStore.Close()
+			if m.db != nil {
+				isStarted = m.db.GetMinionStatus(mc.Filename)
 			}
-			
+
 			isActive := m.activeJobs[mc.Filename]
 			isDraft := false
 			if mc.Enabled != nil && !*mc.Enabled {
 				isDraft = true
 			}
-	
+
 			var dot string
 			var schedStatus string
 			var nextStatus string
-			
+
 			rawSched := engine.ExtractSchedule(mc)
 			cronExpr, _ := engine.ParseToCron(rawSched)
 			var nextTime time.Time
 			if cronExpr != "" {
 				parsed, err := parser.Parse(cronExpr)
 				if err == nil {
-					// Need last run to calc next accurately, but now works roughly
 					nextTime = parsed.Next(now)
 				}
 			}
-			
+
 			if isDraft {
 				if i != m.cursor {
 					nameStyle = lipgloss.NewStyle().Foreground(colorMuted)
@@ -301,7 +272,6 @@ func (m model) renderHeader() string {
 				schedStatus = mutedStyle.Render("Disabled")
 				nextStatus = mutedStyle.Render("-")
 			} else if isActive {
-				// Use green play button for Running
 				dot = lipgloss.NewStyle().Foreground(colorSuccess).Render("▶")
 				schedStatus = lipgloss.NewStyle().Foreground(colorSuccess).Render("Running")
 				nextStatus = mutedStyle.Render("-")
@@ -315,7 +285,7 @@ func (m model) renderHeader() string {
 				} else {
 					dot = mutedStyle.Render("●")
 				}
-				
+
 				if rawSched == "" {
 					schedStatus = mutedStyle.Render("Manual")
 					nextStatus = mutedStyle.Render("-")
@@ -325,7 +295,7 @@ func (m model) renderHeader() string {
 						dispSched = dispSched[:schedW-3] + "..."
 					}
 					schedStatus = mutedStyle.Render(dispSched)
-					
+
 					if nextTime.IsZero() {
 						nextStatus = mutedStyle.Render("-")
 					} else {
@@ -338,44 +308,31 @@ func (m model) renderHeader() string {
 				}
 			}
 
-			nameW := w - 4
-			if showStatus {
-				nameW = w - 6 - schedW - nextW
-			}
-			if nameW < 5 { nameW = 5 }
-	
 			name := mc.Name
 			if lipgloss.Width(name) > nameW {
 				name = name[:nameW-3] + "..."
 			}
-			
-				namePad := nameW - lipgloss.Width(name)
-				if namePad < 0 { namePad = 0 }
-		
-				var row string
-				if showStatus {
-					schedPad := schedW - lipgloss.Width(schedStatus)
-					if schedPad < 0 { schedPad = 0 }
-					
-					nextPad := nextW - lipgloss.Width(nextStatus)
-					if nextPad < 0 { nextPad = 0 }
-					
-					row = fmt.Sprintf(" %s %s%s%s %s%s %s%s", 
-						dot, cursor, nameStyle.Render(name), strings.Repeat(" ", namePad), 
-						schedStatus, strings.Repeat(" ", schedPad), 
-						nextStatus, strings.Repeat(" ", nextPad))
-				} else {
-					row = fmt.Sprintf(" %s %s%s", dot, cursor, nameStyle.Render(name))
-				}
-			
+			namePad := nameW - lipgloss.Width(name)
+			if namePad < 0 { namePad = 0 }
+
+			schedPad := schedW - lipgloss.Width(schedStatus)
+			if schedPad < 0 { schedPad = 0 }
+			nextPad := nextW - lipgloss.Width(nextStatus)
+			if nextPad < 0 { nextPad = 0 }
+
+			row := fmt.Sprintf(" %s %s%s%s %s%s %s%s",
+				dot, cursor, nameStyle.Render(name), strings.Repeat(" ", namePad),
+				schedStatus, strings.Repeat(" ", schedPad),
+				nextStatus, strings.Repeat(" ", nextPad))
+
 			minionRows = append(minionRows, row)
 		}
-	
+
 		start := m.listOffset
 		end := start + (h - 2)
 		if end > len(minionRows) { end = len(minionRows) }
 		if start > end { start = end }
-	
+
 		visibleRows := append(headerLines, minionRows[start:end]...)
 		return strings.Join(visibleRows, "\n")
 	}
@@ -449,9 +406,9 @@ func wrapLines(text string, width int) []string {
 	}
 	out.WriteString(titleStyle.Render(title) + "\n\n")
 
-	if !isEditMode && m.state == stateDashboard {
+	if !isEditMode && (m.state == stateDashboard || m.state == stateDetail) {
 		var actions string
-			if m.focusRight {
+			if m.state == stateDetail {
 				actions = mutedStyle.Render("Press ") + lipgloss.NewStyle().Foreground(colorAccent).Render("space") + mutedStyle.Render(" toggle • ") + 
 						  lipgloss.NewStyle().Foreground(colorAccent).Render("r") + mutedStyle.Render(" run • ") + 
 						  lipgloss.NewStyle().Foreground(colorAccent).Render("s") + mutedStyle.Render(" stop • ") + 

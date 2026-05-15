@@ -58,18 +58,20 @@ Usage:
 
 		displayName := strings.TrimSuffix(m.Filename, ".yaml")
 		displayName = strings.TrimSuffix(displayName, ".yml")
-		fmt.Printf(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(fmt.Sprintf("Stopping %s... ", displayName)))
+		fmt.Print(lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render(fmt.Sprintf("Stopping %s... ", displayName)))
 
-		// Wait for the job to actually die
-		for {
+		// Wait for the job to actually die (max 30s)
+		deadline := time.Now().Add(30 * time.Second)
+		for time.Now().Before(deadline) {
 			jobs, _ := dbStore.GetActiveJobs()
 			if !jobs[m.Filename] {
-				break
+				fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("Stopped."))
+				os.Exit(0)
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
 
-		fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("Stopped."))
+		fmt.Println(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("Timed out waiting for minion to stop."))
 	},
 }
 

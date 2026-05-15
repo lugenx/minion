@@ -19,7 +19,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"minion/internal/config"
-	"minion/internal/store"
 )
 
 type logMsg string
@@ -48,53 +47,45 @@ func listenForLogs(c chan string) tea.Cmd {
 }
 
 func (m *model) syncBuilderViewport() {
-	var rightW int
-	if m.width >= 80 {
-		rightW = m.width - 56 - 1
-	} else {
-		rightW = m.width
-	}
-	w := rightW - 4
+	w := m.width - 4
 	if w < 10 { w = 10 }
 
-	// Ensure height is set
-	if m.mainH < 5 { m.mainH = 5 }
+	_, contentH := contentHeight(m.mainH)
+	if contentH < 3 { contentH = 3 }
 	m.builderViewport.Width = w
-	m.builderViewport.Height = m.mainH
+	m.builderViewport.Height = contentH
 
-	if m.state == stateForm || (m.state == stateDashboard && !m.focusRight) {
-		isEditMode := m.state == stateForm
-		content := m.renderBuilderString(w, m.mainH, isEditMode)
+	if m.state == stateForm {
+		isEditMode := true
+		content := m.renderBuilderString(w, contentH, isEditMode)
 		lines := strings.Split(content, "\n")
-		
+
 		cursorLine := -1
-		if isEditMode {
-			for i, l := range lines {
-				if strings.HasPrefix(l, "> ") || strings.Contains(l, "> ") || strings.Contains(l, "┃ ") || strings.Contains(l, "Step type") {
-					cursorLine = i
-					break
-				}
+		for i, l := range lines {
+			if strings.HasPrefix(l, "> ") || strings.Contains(l, "> ") || strings.Contains(l, "┃ ") || strings.Contains(l, "Step type") {
+				cursorLine = i
+				break
 			}
 		}
-		
+
 		m.builderViewport.SetContent(content)
-		
-		if isEditMode && cursorLine != -1 {
+
+		if cursorLine != -1 {
 			if cursorLine < m.builderViewport.YOffset {
 				m.builderViewport.SetYOffset(cursorLine)
 			} else if cursorLine+10 >= m.builderViewport.YOffset+m.builderViewport.Height {
 				m.builderViewport.SetYOffset(cursorLine + 10 - m.builderViewport.Height + 1)
 			}
 		}
-	} else if m.state == stateDashboard && m.focusRight {
-		// Just update content, don't auto-scroll
-		content := m.renderBuilderString(w, m.mainH, false)
+	} else if m.state == stateDetail {
+		content := m.renderBuilderString(w, contentH, false)
 		m.builderViewport.SetContent(content)
 	}
 }
 
 func (m *model) updateListOffset() {
-	avail := m.mainH - 2 // header takes 2 lines
+	_, contentH := contentHeight(m.mainH)
+	avail := contentH - 2
 	if avail < 1 { avail = 1 }
 	if m.cursor < m.listOffset {
 		m.listOffset = m.cursor
@@ -535,25 +526,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.Width = msg.Width
+		m.help.Width = msg.Width - 4
+		if m.help.Width < 10 { m.help.Width = 10 }
 		
-		headerH := lipgloss.Height(m.renderHeader())
-		footerH := lipgloss.Height(m.renderFooter())
-		m.mainH = m.height - headerH - footerH - 2 // account for top and bottom margins
+		headerH := lipgloss.Height(m.renderHeader(m.width - 2))
+		footerH := lipgloss.Height(m.renderFooter(m.width - 2))
+		m.mainH = m.height - headerH - footerH
 		if m.mainH < 5 { m.mainH = 5 }
 
-		var vpWidth, vpHeight int
-		if m.width >= 80 {
-			vpWidth = m.width - 56 - 5
-		} else {
-			vpWidth = m.width - 6
-		}
-		
+		vpWidth := m.width - 6
 		if vpWidth < 10 {
 			vpWidth = 10
 		}
 		
-		vpHeight = m.mainH - 3
+		vpHeight := m.mainH - 3
 		if vpHeight < 5 {
 			vpHeight = 5
 		}
@@ -583,7 +569,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		if m.state == stateDashboard {
-			if m.confirmDelete && !m.focusRight {
+			if m.confirmDelete {
 				if msg.String() == "y" || msg.String() == "Y" {
 					if len(m.minions) > 0 {
 						target := m.minions[m.cursor].Filename
@@ -603,8 +589,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 
-			if !m.focusRight {
-				switch {
+			switch {
 				case key.Matches(msg, m.keys.Up):
 					if m.cursor > 0 {
 						m.cursor--
@@ -625,11 +610,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if selected.Enabled != nil && !*selected.Enabled {
 								return m, nil
 							}
-							dbStore, _ := store.InitStore(config.DBPath)
-							if dbStore != nil {
-								currentState := dbStore.GetMinionStatus(selected.Filename)
+							if m.db != nil {
+								currentState := m.db.GetMinionStatus(selected.Filename)
 								newState := !currentState
-								_ = dbStore.SetMinionStatus(selected.Filename, newState)
+								_ = m.db.SetMinionStatus(selected.Filename, newState)
 								
 								if newState {
 									m.upCount++
@@ -646,13 +630,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										m.daemonRunning = false
 									}
 								}
-								dbStore.Close()
 							}
 							return m, nil
 						}
 				case key.Matches(msg, m.keys.Enter):
 					if len(m.minions) > 0 {
-						m.focusRight = true
+						m.state = stateDetail
 						m.builderViewport.SetYOffset(0)
 						m.syncBuilderViewport()
 					}
@@ -666,7 +649,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.textArea.Focus()
 						cmds = append(cmds, textarea.Blink)
 						m.state = stateEnv
-						m.focusRight = false
 						m.syncBuilderViewport()
 						return m, tea.Batch(cmds...)
 					case key.Matches(msg, m.keys.New):
@@ -680,7 +662,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.textInput.Focus()
 					cmds = append(cmds, textinput.Blink)
 					m.state = stateForm
-					m.focusRight = false
 					m.syncBuilderViewport()
 					return m, tea.Batch(cmds...)
 				case key.Matches(msg, m.keys.Delete):
@@ -694,12 +675,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							selected := m.minions[m.cursor]
 							
 							if !m.activeJobs[selected.Filename] {
-								dbStore, _ := store.InitStore(config.DBPath)
-								if dbStore != nil {
-									_ = dbStore.QueueRun(selected.Filename)
-									dbStore.Close()
-									
-									// Ensure daemon is running to process the queue
+								if m.db != nil {
+									_ = m.db.QueueRun(selected.Filename)
+
 									if !m.daemonRunning {
 										c := exec.Command(os.Args[0], "run", "-d")
 										_ = c.Run()
@@ -722,12 +700,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case key.Matches(msg, m.keys.Stop):
 						if len(m.minions) > 0 {
 							selected := m.minions[m.cursor]
-							if m.activeJobs[selected.Filename] {
-								dbStore, _ := store.InitStore(config.DBPath)
-								if dbStore != nil {
-									_ = dbStore.QueueAbort(selected.Filename)
-									dbStore.Close()
-								}
+							if m.activeJobs[selected.Filename] && m.db != nil {
+								fn := selected.Filename
+								go func() { _ = m.db.QueueAbort(fn) }()
 							}
 							return m, nil
 						}
@@ -758,125 +733,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.builderCursor = 0
 							m.editMode = false
 							m.state = stateForm
-							m.focusRight = true
 							m.syncBuilderViewport()
 							return m, nil
-						}
-					}
-					} else {
-						// Right pane is focused
-						switch {
-						case key.Matches(msg, m.keys.Up):
-							m.builderViewport.LineUp(1)
-						case key.Matches(msg, m.keys.Down):
-							m.builderViewport.LineDown(1)
-						case key.Matches(msg, m.keys.Back):
-							m.focusRight = false
-							m.syncBuilderViewport()
-						case key.Matches(msg, m.keys.Toggle):
-							if len(m.minions) > 0 {
-								selected := m.minions[m.cursor]
-								if selected.Enabled != nil && !*selected.Enabled {
-									return m, nil
-								}
-								dbStore, _ := store.InitStore(config.DBPath)
-								if dbStore != nil {
-									currentState := dbStore.GetMinionStatus(selected.Filename)
-									newState := !currentState
-									_ = dbStore.SetMinionStatus(selected.Filename, newState)
-									
-									if newState {
-										m.upCount++
-										if !m.daemonRunning {
-											c := exec.Command(os.Args[0], "run", "-d")
-											_ = c.Run()
-											m.daemonRunning = true
-										}
-									} else {
-										m.upCount--
-										if m.upCount <= 0 && m.daemonRunning {
-											c := exec.Command(os.Args[0], "down")
-											_ = c.Run()
-											m.daemonRunning = false
-										}
-									}
-									dbStore.Close()
-								}
-								return m, nil
-							}
-						case key.Matches(msg, m.keys.Run):
-							if len(m.minions) > 0 {
-								selected := m.minions[m.cursor]
-								
-								if !m.activeJobs[selected.Filename] {
-									dbStore, _ := store.InitStore(config.DBPath)
-									if dbStore != nil {
-										_ = dbStore.QueueRun(selected.Filename)
-										dbStore.Close()
-										
-										// Ensure daemon is running to process the queue
-										if !m.daemonRunning {
-											c := exec.Command(os.Args[0], "run", "-d")
-											_ = c.Run()
-											m.daemonRunning = true
-										}
-									}
-								}
-								
-								m.state = stateLogs
-								m.logContent = ""
-								m.logViewport.SetContent("")
-								m.tailing = true
-								
-								logChan = make(chan string, 100)
-								ctx := context.Background()
-								
-								cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
-								return m, tea.Batch(cmds...)
-							}
-						case key.Matches(msg, m.keys.Stop):
-							if len(m.minions) > 0 {
-								selected := m.minions[m.cursor]
-								if m.activeJobs[selected.Filename] {
-									dbStore, _ := store.InitStore(config.DBPath)
-									if dbStore != nil {
-										_ = dbStore.QueueAbort(selected.Filename)
-										dbStore.Close()
-									}
-								}
-								return m, nil
-							}
-						case key.Matches(msg, m.keys.Log):
-							if len(m.minions) > 0 {
-								m.state = stateLogs
-								m.logContent = ""
-								m.logViewport.SetContent("")
-								m.tailing = true
-								
-								logChan = make(chan string, 100)
-								ctx := context.Background()
-								
-								selected := m.minions[m.cursor]
-								cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
-								return m, tea.Batch(cmds...)
-							}
-						case key.Matches(msg, m.keys.Edit):
-							if len(m.minions) > 0 {
-								selected := m.minions[m.cursor]
-								rawMinion := loadRawMinionForEditing(selected.Filename)
-								if rawMinion == nil {
-									rawMinion = selected // Fallback
-								}
-								
-								m.builderData = initBuilderData(rawMinion)
-								m.refreshBuilderRows()
-								m.builderCursor = 0
-								m.editMode = false
-								m.state = stateForm
-								m.focusRight = true
-								m.syncBuilderViewport()
-								return m, nil
-							}
 						}
 					}
 			} else if m.state == stateEnv {
@@ -902,17 +760,111 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if key.Matches(msg, m.keys.Stop) {
 							if len(m.minions) > 0 {
 								selected := m.minions[m.cursor]
-								if m.activeJobs[selected.Filename] {
-									dbStore, _ := store.InitStore(config.DBPath)
-									if dbStore != nil {
-										_ = dbStore.QueueAbort(selected.Filename)
-										dbStore.Close()
-									}
+								if m.activeJobs[selected.Filename] && m.db != nil {
+									fn := selected.Filename
+									go func() { _ = m.db.QueueAbort(fn) }()
 									// Inject a bright orange line into the logs so user knows it worked
 									m.logContent += lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("[System] Stopping...") + "\n"
 									m.logViewport.SetContent(m.logContent)
 									m.logViewport.GotoBottom()
 								}
+						}
+					}
+					} else if m.state == stateDetail {
+						switch {
+						case key.Matches(msg, m.keys.Back):
+							m.state = stateDashboard
+							m.loadState()
+							m.syncBuilderViewport()
+						case key.Matches(msg, m.keys.Up):
+							m.builderViewport.LineUp(1)
+						case key.Matches(msg, m.keys.Down):
+							m.builderViewport.LineDown(1)
+						case key.Matches(msg, m.keys.Toggle):
+							if len(m.minions) > 0 {
+								selected := m.minions[m.cursor]
+								if selected.Enabled != nil && !*selected.Enabled {
+									return m, nil
+								}
+								if m.db != nil {
+									currentState := m.db.GetMinionStatus(selected.Filename)
+									newState := !currentState
+									_ = m.db.SetMinionStatus(selected.Filename, newState)
+									if newState {
+										m.upCount++
+										if !m.daemonRunning {
+											c := exec.Command(os.Args[0], "run", "-d")
+											_ = c.Run()
+											m.daemonRunning = true
+										}
+									} else {
+										m.upCount--
+										if m.upCount <= 0 && m.daemonRunning {
+											c := exec.Command(os.Args[0], "down")
+											_ = c.Run()
+											m.daemonRunning = false
+										}
+									}
+								}
+								return m, nil
+							}
+						case key.Matches(msg, m.keys.Run):
+							if len(m.minions) > 0 {
+								selected := m.minions[m.cursor]
+								if !m.activeJobs[selected.Filename] {
+									if m.db != nil {
+										_ = m.db.QueueRun(selected.Filename)
+										if !m.daemonRunning {
+											c := exec.Command(os.Args[0], "run", "-d")
+											_ = c.Run()
+											m.daemonRunning = true
+										}
+									}
+								}
+								m.state = stateLogs
+								m.logContent = ""
+								m.logViewport.SetContent("")
+								m.tailing = true
+								logChan = make(chan string, 100)
+								ctx := context.Background()
+								cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
+								return m, tea.Batch(cmds...)
+							}
+						case key.Matches(msg, m.keys.Stop):
+							if len(m.minions) > 0 {
+								selected := m.minions[m.cursor]
+								if m.activeJobs[selected.Filename] && m.db != nil {
+									fn := selected.Filename
+									go func() { _ = m.db.QueueAbort(fn) }()
+								}
+								return m, nil
+							}
+						case key.Matches(msg, m.keys.Log):
+							if len(m.minions) > 0 {
+								m.state = stateLogs
+								m.logContent = ""
+								m.logViewport.SetContent("")
+								m.tailing = true
+								logChan = make(chan string, 100)
+								ctx := context.Background()
+								selected := m.minions[m.cursor]
+								cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
+								return m, tea.Batch(cmds...)
+							}
+						case key.Matches(msg, m.keys.Edit):
+							if len(m.minions) > 0 {
+								selected := m.minions[m.cursor]
+								rawMinion := loadRawMinionForEditing(selected.Filename)
+								if rawMinion == nil {
+									rawMinion = selected
+								}
+								m.builderData = initBuilderData(rawMinion)
+								m.refreshBuilderRows()
+								m.builderCursor = 0
+								m.editMode = false
+								m.state = stateForm
+								m.syncBuilderViewport()
+								return m, nil
 							}
 						}
 					}
@@ -928,11 +880,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadState()
 		
 	case tickActiveJobsMsg:
-		dbStore, _ := store.InitStore(config.DBPath)
-		if dbStore != nil {
-			m.activeJobs, _ = dbStore.GetActiveJobs()
+		if m.db != nil {
+			m.activeJobs, _ = m.db.GetActiveJobs()
 			m.upCount = 0
-			activeMinions, _ := dbStore.GetActiveMinions()
+			activeMinions, _ := m.db.GetActiveMinions()
 			for _, mc := range m.minions {
 				if mc.Enabled != nil && !*mc.Enabled {
 					continue
@@ -941,7 +892,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.upCount++
 				}
 			}
-			dbStore.Close()
 		}
 		
 		if _, err := os.Stat(config.PIDPath); err == nil {
@@ -956,7 +906,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.logSpinner, cmd = m.logSpinner.Update(msg)
 	cmds = append(cmds, cmd)
 
-	if m.state == stateForm || m.state == stateDashboard {
+	if m.state == stateForm || m.state == stateDashboard || m.state == stateDetail {
 		var vpCmd tea.Cmd
 		m.builderViewport, vpCmd = m.builderViewport.Update(msg)
 		cmds = append(cmds, vpCmd)

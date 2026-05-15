@@ -21,6 +21,7 @@ type sessionState int
 
 const (
 	stateDashboard sessionState = iota
+	stateDetail
 	stateLogs
 	stateForm
 	stateEnv
@@ -57,8 +58,6 @@ type model struct {
 	daemonRunning bool
 	cursor        int
 
-	focusRight    bool
-
 	width  int
 	height int
 
@@ -83,6 +82,8 @@ type model struct {
 	confirmDelete bool
 	textInput     textinput.Model
 	textArea      textarea.Model
+
+	db *store.Store
 }
 
 type PublicModel interface {
@@ -122,6 +123,11 @@ func newModel() model {
 	bv.KeyMap.PageUp.SetEnabled(true)
 	bv.KeyMap.PageDown.SetEnabled(true)
 
+	db, err := store.InitStore(config.DBPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to open store: %v\n", err)
+	}
+
 	m := model{
 		state:           stateDashboard,
 		logSpinner:      s,
@@ -130,6 +136,7 @@ func newModel() model {
 		textInput:       ti,
 		textArea:        ta,
 		builderViewport: bv,
+		db:              db,
 	}
 
 	m.loadState()
@@ -156,11 +163,10 @@ func (m *model) loadState() {
 		m.daemonRunning = false
 	}
 
-	dbStore, _ := store.InitStore(config.DBPath)
-	if dbStore != nil {
-		m.activeJobs, _ = dbStore.GetActiveJobs()
+	if m.db != nil {
+		m.activeJobs, _ = m.db.GetActiveJobs()
 		m.upCount = 0
-		activeMinions, _ := dbStore.GetActiveMinions()
+		activeMinions, _ := m.db.GetActiveMinions()
 		for _, mc := range m.minions {
 			if mc.Enabled != nil && !*mc.Enabled {
 				continue
@@ -169,7 +175,6 @@ func (m *model) loadState() {
 				m.upCount++
 			}
 		}
-		dbStore.Close()
 	} else {
 		m.activeJobs = make(map[string]bool)
 		m.upCount = 0

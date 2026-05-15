@@ -13,22 +13,16 @@ type Store struct {
 }
 
 func InitStore(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// Use DSN pragmas so they apply on every connection the pool opens
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite db: %w", err)
 	}
 
-	// Enable Write-Ahead Logging (WAL) for high concurrency
-	_, err = db.Exec("PRAGMA journal_mode=WAL;")
-	if err != nil {
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-
-	// Set a 5-second busy timeout to queue simultaneous writes instead of crashing
-	_, err = db.Exec("PRAGMA busy_timeout=5000;")
-	if err != nil {
-		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
-	}
+	// Explicit PRAGMAs as a safety net in case DSN pragmas are not supported
+	_, _ = db.Exec("PRAGMA journal_mode=WAL;")
+	_, _ = db.Exec("PRAGMA busy_timeout=5000;")
 
 	createTableQuery := `
 	CREATE TABLE IF NOT EXISTS scraped_pages (

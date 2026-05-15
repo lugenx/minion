@@ -278,6 +278,10 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		}
 	}
 
+	if len(uniqueURLs) == 0 {
+		uniqueURLs = append(uniqueURLs, "")
+	}
+
 	for _, u := range uniqueURLs {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -545,7 +549,11 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 				content := m.Text
 				if content == "" {
-					content = "URL: " + m.URL
+					if m.URL != "" {
+						content = "URL: " + m.URL
+					} else {
+						content = task
+					}
 				}
 
 				step("STUDY", fmt.Sprintf("Reading %s", m.URL), false)
