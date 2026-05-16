@@ -507,11 +507,11 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 
 	const maxCardW = 120
 	cardW := w - 6
-	if cardW < 50 {
-		cardW = 50
-	}
 	if cardW > maxCardW {
 		cardW = maxCardW
+	}
+	if cardW < 20 {
+		cardW = 20
 	}
 	leftPad := (w - cardW) / 2
 	if leftPad < 0 {
