@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -25,11 +26,54 @@ var (
 	headerStyle   = lipgloss.NewStyle().Foreground(colorMuted).Bold(true)
 	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("232")).Background(colorAccent).Bold(true).Padding(0, 1)
 	normalStyle   = lipgloss.NewStyle().Foreground(colorNormal).Padding(0, 1)
-	labelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("246")) // Calm, soft grey for keys
+	labelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("246"))
+	subLabelStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("242"))
 	mutedStyle    = lipgloss.NewStyle().Foreground(colorMuted)
 	
 	paneStyle     = lipgloss.NewStyle().Padding(0, 1)
+
+	cardBase = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("237")).
+			Padding(1, 2)
+
+	cardSepStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
 )
+
+var stepColors = map[string]lipgloss.Color{
+	"schedule": lipgloss.Color("74"),
+	"search":   lipgloss.Color("114"),
+	"browse":   lipgloss.Color("215"),
+	"filter":   lipgloss.Color("140"),
+	"scrape":   lipgloss.Color("209"),
+	"study":    lipgloss.Color("104"),
+	"deliver":  lipgloss.Color("167"),
+	"receive":  lipgloss.Color("73"),
+	"report":   lipgloss.Color("176"),
+}
+
+func getStepColor(stepType string) lipgloss.Color {
+	if c, ok := stepColors[stepType]; ok {
+		return c
+	}
+	return colorAccent
+}
+
+var subFields = map[string]bool{
+	"BrowseMatch":     true,
+	"BrowseRender":    true,
+	"SearchLimit":     true,
+	"DeliverUsername": true,
+	"DeliverPassword": true,
+	"DeliverMethod":   true,
+	"DeliverHeaders":  true,
+	"DeliverPayload":  true,
+	"ReportUsername":  true,
+	"ReportPassword":  true,
+	"ReportMethod":    true,
+	"ReportHeaders":   true,
+	"ReportPayload":   true,
+}
 
 func contentHeight(avail int) (_, h int) {
 	h = avail
@@ -66,7 +110,12 @@ func (m model) View() string {
 		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderEnvEditor(innerW, contentH))
 	}
 
-	body := header + "\n" + content + "\n" + footer
+	var body string
+	if m.state == stateDetail || m.state == stateForm {
+		body = header + content + "\n" + footer
+	} else {
+		body = header + "\n" + content + "\n" + footer
+	}
 	return lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(body)
 }
 
@@ -136,7 +185,8 @@ func (m model) renderHeader(w int) string {
 	barStyle := lipgloss.NewStyle().Padding(0, 1).Width(w)
 	headerRow := barStyle.Render(title + strings.Repeat(" ", space) + status)
 	border := borderStyle.Render(strings.Repeat("─", w))
-	return border + "\n" + headerRow + "\n" + border
+	result := border + "\n" + headerRow + "\n" + border
+	return result
 }
 
 	func (m model) renderFooter(w int) string {
@@ -363,28 +413,27 @@ func wrapLines(text string, width int) []string {
 	return lines
 }
 
-	func (m model) renderBuilderString(w, h int, isEditMode bool) string {
-		var d *builderData
-		if isEditMode {
-			d = m.builderData
-		} else {
-			if len(m.minions) > 0 {
-				selected := m.minions[m.cursor]
-				rawMinion := loadRawMinionForEditing(selected.Filename)
-				if rawMinion == nil {
-					rawMinion = selected // Fallback
-				}
-				d = initBuilderData(rawMinion)
-			} else {
-				return ""
+func (m model) renderBuilderString(w, h int, isEditMode bool) string {
+	var d *builderData
+	if isEditMode {
+		d = m.builderData
+	} else {
+		if len(m.minions) > 0 {
+			selected := m.minions[m.cursor]
+			rawMinion := loadRawMinionForEditing(selected.Filename)
+			if rawMinion == nil {
+				rawMinion = selected
 			}
+			d = initBuilderData(rawMinion)
+		} else {
+			return ""
 		}
+	}
 
 	if d == nil {
 		return ""
 	}
 
-	// For dashboard (read-only) view, we need to generate rows dynamically based on hovered minion
 	var renderRows []builderRow
 	if isEditMode {
 		renderRows = m.builderRows
@@ -407,113 +456,127 @@ func wrapLines(text string, width int) []string {
 
 	if !isEditMode && (m.state == stateDashboard || m.state == stateDetail) {
 		var actions string
-			if m.state == stateDetail {
-				actions = mutedStyle.Render("Press ") + lipgloss.NewStyle().Foreground(colorAccent).Render("space") + mutedStyle.Render(" toggle • ") + 
-						  lipgloss.NewStyle().Foreground(colorAccent).Render("r") + mutedStyle.Render(" run • ") + 
-						  lipgloss.NewStyle().Foreground(colorAccent).Render("s") + mutedStyle.Render(" stop • ") + 
-						  lipgloss.NewStyle().Foreground(colorAccent).Render("l") + mutedStyle.Render(" logs • ") +
-						  lipgloss.NewStyle().Foreground(colorAccent).Render("e") + mutedStyle.Render(" edit")
-			} else {
+		if m.state == stateDetail {
+			actions = mutedStyle.Render("Press ") + lipgloss.NewStyle().Foreground(colorAccent).Render("space") + mutedStyle.Render(" toggle • ") +
+				lipgloss.NewStyle().Foreground(colorAccent).Render("r") + mutedStyle.Render(" run • ") +
+				lipgloss.NewStyle().Foreground(colorAccent).Render("s") + mutedStyle.Render(" stop • ") +
+				lipgloss.NewStyle().Foreground(colorAccent).Render("l") + mutedStyle.Render(" logs • ") +
+				lipgloss.NewStyle().Foreground(colorAccent).Render("e") + mutedStyle.Render(" edit")
+		} else {
 			actions = mutedStyle.Render("Press Enter to view details & actions")
 		}
 		out.WriteString(actions + "\n\n")
 	}
 
-	// If we are actively editing the study task multiline
 	if isEditMode && m.editMode && (renderRows[m.builderCursor].Field == "StudyTask" || renderRows[m.builderCursor].Field == "DeliverPayload" || renderRows[m.builderCursor].Field == "ReportPayload") {
-		out.WriteString(headerStyle.Render("Edit: " + renderRows[m.builderCursor].Label) + "\n")
+		out.WriteString(headerStyle.Render("Edit: "+renderRows[m.builderCursor].Label) + "\n")
 		out.WriteString(borderStyle.Render(strings.Repeat("─", w)) + "\n")
-		
 		m.textArea.SetWidth(w)
 		m.textArea.SetHeight(h - 8)
 		out.WriteString(m.textArea.View() + "\n")
-		
 		out.WriteString(borderStyle.Render(strings.Repeat("─", w)) + "\n")
 		out.WriteString(mutedStyle.Render("esc Save & Return"))
 		return out.String()
 	}
 
-	renderRow := func(i int, row builderRow) {
-		if row.Type == rowSpacer {
-			if row.Field == "EditOnlySpacer" && !isEditMode {
-				return // Only show this spacer when in Edit Mode
+	type stepGroupData struct {
+		stepIndex int
+		stepType  string
+		rows      []builderRow
+	}
+
+	var infoRows []builderRow
+	var stepGroups []stepGroupData
+	var addStepRow builderRow
+	var hasAddStep bool
+
+	for _, row := range renderRows {
+		switch row.Type {
+		case rowAddStep:
+			hasAddStep = true
+			addStepRow = row
+		case rowStepHeader:
+			stepGroups = append(stepGroups, stepGroupData{
+				stepIndex: row.StepIndex,
+				stepType:  row.Label,
+				rows:      []builderRow{row},
+			})
+		default:
+			if row.StepIndex == -1 {
+				infoRows = append(infoRows, row)
+			} else if len(stepGroups) > 0 {
+				stepGroups[len(stepGroups)-1].rows = append(stepGroups[len(stepGroups)-1].rows, row)
 			}
-			out.WriteString("\n")
+		}
+	}
+
+	const maxCardW = 120
+	cardW := w - 6
+	if cardW < 50 {
+		cardW = 50
+	}
+	if cardW > maxCardW {
+		cardW = maxCardW
+	}
+	leftPad := (w - cardW) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	leftPadStr := strings.Repeat(" ", leftPad)
+
+	cursorStepIndex := -2
+	if isEditMode && m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) {
+		cursorStepIndex = m.builderRows[m.builderCursor].StepIndex
+	}
+
+	isStepActive := func(si int) bool {
+		return isEditMode && cursorStepIndex == si && !m.editMode && !m.addStepMode
+	}
+
+	renderField := func(target *strings.Builder, row builderRow, rowIdx int, availW int) {
+		if row.Type == rowSpacer || row.Type == rowStepHeader {
 			return
 		}
 
 		cursor := "  "
-		if isEditMode && m.builderCursor == i && !m.editMode && !m.addStepMode {
+		if isEditMode && m.builderCursor == rowIdx && !m.editMode && !m.addStepMode {
 			cursor = "> "
-		}
-
-		if row.Type == rowAddStep {
-			if isEditMode && m.addStepMode {
-				cursor = "  "
-				out.WriteString(fmt.Sprintf("\n%s%s\n", cursor, m.textInput.View()))
-				
-					sugs, _ := getSuggestions(true, "", "", m.textInput.Value())
-				if len(sugs) > 0 {
-						for j, s := range sugs {
-							if j == 0 {
-								out.WriteString(fmt.Sprintf("%s  %s\n", cursor, lipgloss.NewStyle().Foreground(colorAccent).Render(s)))
-							} else {
-							out.WriteString(fmt.Sprintf("%s  %s\n", cursor, mutedStyle.Render(s)))
-						}
-					}
-				}
-			} else if isEditMode {
-				btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-				if m.builderCursor == i && !m.addStepMode && !m.editMode {
-					btnStyle = selectedStyle
-				}
-				out.WriteString(fmt.Sprintf("\n%s%s\n", cursor, btnStyle.Render(row.Label)))
-			}
-			return
-		}
-
-		if row.Type == rowStepHeader {
-			out.WriteString(fmt.Sprintf("\n%s%s\n", cursor, headerStyle.Render(row.Label)))
-			return
 		}
 
 		indent := "  "
 		if row.Type == rowStepField || row.Type == rowAddSubItem || row.Type == rowRemoveSubItem {
-			indent = "    " // 4 spaces to align under the `- header`
+			indent = "  "
 		}
-		
-		cursor = indent + cursor
+		fullCursor := indent + cursor
 
 		if row.Type == rowAddSubItem || row.Type == rowRemoveSubItem {
 			if isEditMode {
-				btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Nice dark grey
-				if m.builderCursor == i && !m.editMode && !m.addStepMode {
+				btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+				if m.builderCursor == rowIdx && !m.editMode && !m.addStepMode {
 					btnStyle = selectedStyle
-					
-					// Make remove button red when selected
 					if row.Type == rowRemoveSubItem {
 						btnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("232")).Background(lipgloss.Color("1")).Bold(true).Padding(0, 1)
 					}
 				}
-				
-				// Calculate the padding to align perfectly with the values (15 spaces)
 				padW := 15
-				out.WriteString(fmt.Sprintf("%s%s%s\n", cursor, strings.Repeat(" ", padW), btnStyle.Render(row.Label)))
+				target.WriteString(fmt.Sprintf("%s%s%s\n", fullCursor, strings.Repeat(" ", padW), btnStyle.Render(row.Label)))
 			}
 			return
 		}
 
-		valW := w - lipgloss.Width(indent) - 15 - 4
-		if valW < 5 { valW = 5 }
+		valW := availW - lipgloss.Width(indent) - 15 - 4
+		if valW < 5 {
+			valW = 5
+		}
 
 		var displayLines []string
 		value := row.Value
 
-		if isEditMode && m.editMode && m.builderCursor == i {
+		if isEditMode && m.editMode && m.builderCursor == rowIdx {
 			cursor = indent + "  "
 			m.textInput.Width = valW
 			displayLines = []string{m.textInput.View()}
-			
+
 			contextType := ""
 			if row.Field == "DeliverTarget" || row.Field == "ReportTarget" {
 				if dStep, ok := m.builderData.Steps[row.StepIndex].(*DeliverStep); ok {
@@ -522,22 +585,22 @@ func wrapLines(text string, width int) []string {
 					contextType = rStep.Targets[row.TargetIndex].Type
 				}
 			}
-			
+
 			sugs, _ := getSuggestions(false, row.Field, contextType, m.textInput.Value())
 			if len(sugs) > 0 {
-					for j, s := range sugs {
-						if j == 0 {
-							displayLines = append(displayLines, lipgloss.NewStyle().Foreground(colorAccent).Render(s))
-						} else {
+				for j, s := range sugs {
+					if j == 0 {
+						displayLines = append(displayLines, lipgloss.NewStyle().Foreground(colorAccent).Render(s))
+					} else {
 						displayLines = append(displayLines, mutedStyle.Render(s))
 					}
 				}
 			}
 		} else if !isEditMode && row.Type != rowEnabled && (value == "" || value == "false") {
-			return // Hide empty fields and false booleans in read-only mode
+			return
 		} else if value == "" && isEditMode && row.Type != rowEnabled {
 			if row.Field == "DeliverUsername" || row.Field == "DeliverPassword" || row.Field == "DeliverMethod" || row.Field == "DeliverHeaders" || row.Field == "DeliverPayload" ||
-			   row.Field == "ReportUsername" || row.Field == "ReportPassword" || row.Field == "ReportMethod" || row.Field == "ReportHeaders" || row.Field == "ReportPayload" {
+				row.Field == "ReportUsername" || row.Field == "ReportPassword" || row.Field == "ReportMethod" || row.Field == "ReportHeaders" || row.Field == "ReportPayload" {
 				displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(optional)")}
 			} else {
 				displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
@@ -546,7 +609,7 @@ func wrapLines(text string, width int) []string {
 			if row.Field == "StudyTask" || row.Field == "DeliverPayload" || row.Field == "ReportPayload" {
 				lines := wrapLines(strings.TrimSpace(value), valW)
 				for _, l := range lines {
-					displayLines = append(displayLines, lipgloss.NewStyle().Foreground(colorNormal).Italic(true).Padding(0, 1).Render(l))
+					displayLines = append(displayLines, lipgloss.NewStyle().Foreground(colorNormal).Padding(0, 1).Render(l))
 				}
 				if len(displayLines) == 0 || (len(displayLines) == 1 && displayLines[0] == "") {
 					displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
@@ -555,32 +618,69 @@ func wrapLines(text string, width int) []string {
 				queries := strings.Split(value, ",")
 				for _, q := range queries {
 					q = strings.TrimSpace(q)
-					if q == "" { continue }
+					if q == "" {
+						continue
+					}
 					lines := wrapLines(q, valW-2)
 					if len(lines) > 0 {
 						bullet := lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("- ")
-						displayLines = append(displayLines, bullet + normalStyle.Render(lines[0]))
+						displayLines = append(displayLines, bullet+normalStyle.Render(lines[0]))
 						for j := 1; j < len(lines); j++ {
-							displayLines = append(displayLines, strings.Repeat(" ", lipgloss.Width(bullet)) + normalStyle.Render(lines[j]))
+							displayLines = append(displayLines, strings.Repeat(" ", lipgloss.Width(bullet))+normalStyle.Render(lines[j]))
 						}
 					}
 				}
 				if len(displayLines) == 0 {
 					displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
 				}
-				} else if row.Type == rowEnabled || row.Field == "BrowseRender" {
-					if value == "true" {
-						displayLines = []string{lipgloss.NewStyle().Foreground(colorSuccess).Padding(0, 1).Render("true")}
-					} else {
-						displayLines = []string{lipgloss.NewStyle().Foreground(colorError).Padding(0, 1).Render("false")}
-					}
-				} else if row.Field == "Schedule" {
-					if value == "" {
-						displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
-					} else {
-						displayLines = []string{lipgloss.NewStyle().Foreground(colorAccent).Padding(0, 1).Render(value)}
-					}
+			} else if row.Type == rowEnabled || row.Field == "BrowseRender" {
+				if value == "true" {
+					displayLines = []string{lipgloss.NewStyle().Foreground(colorSuccess).Padding(0, 1).Render("true")}
 				} else {
+					displayLines = []string{lipgloss.NewStyle().Foreground(colorError).Padding(0, 1).Render("false")}
+				}
+			} else if row.Field == "Schedule" {
+				if value == "" {
+					displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
+				} else {
+					displayLines = []string{lipgloss.NewStyle().Foreground(colorAccent).Padding(0, 1).Render(value)}
+				}
+			} else if row.Field == "BrowseURL" || row.Field == "TargetURL" ||
+				row.Field == "DeliverTarget" || row.Field == "ReportTarget" {
+				displayVal := strings.TrimSpace(value)
+				if displayVal == "" {
+					displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
+				} else {
+					plainStyle := lipgloss.NewStyle().Foreground(colorNormal)
+					dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+
+					hostPart := displayVal
+					pathPart := ""
+					if u, err := url.Parse(displayVal); err == nil && u.Host != "" {
+						hostPart = u.Scheme + "://" + u.Host
+						pathPart = u.RequestURI()
+						if pathPart == "/" {
+							pathPart = ""
+						}
+					}
+
+					full := hostPart + pathPart
+					lines := wrapLines(full, valW)
+					for i, l := range lines {
+						if i == 0 && pathPart != "" && len(l) > len(hostPart) {
+							h := l[:len(hostPart)]
+							p := l[len(hostPart):]
+							displayLines = append(displayLines, plainStyle.Render(h)+dimStyle.Render(p))
+						} else if i == 0 {
+							displayLines = append(displayLines, plainStyle.Render(l))
+						} else if pathPart != "" {
+							displayLines = append(displayLines, dimStyle.Render(l))
+						} else {
+							displayLines = append(displayLines, plainStyle.Render(l))
+						}
+					}
+				}
+			} else {
 				displayVal := strings.TrimSpace(value)
 				if displayVal == "" {
 					displayLines = []string{lipgloss.NewStyle().Foreground(colorMuted).Padding(0, 1).Render("(none)")}
@@ -594,50 +694,120 @@ func wrapLines(text string, width int) []string {
 		}
 
 		padW := 15 - lipgloss.Width(row.Label)
-		if padW < 1 { padW = 1 }
+		if padW < 1 {
+			padW = 1
+		}
 
 		if len(displayLines) > 0 {
 			labelStyleToUse := labelStyle
-			if isEditMode && m.builderCursor == i && !m.editMode && !m.addStepMode {
+			if subFields[row.Field] {
+				labelStyleToUse = subLabelStyle
+			}
+			if isEditMode && m.builderCursor == rowIdx && !m.editMode && !m.addStepMode {
 				labelStyleToUse = selectedStyle
 			}
 			renderedLabel := labelStyleToUse.Render(row.Label)
-			
-			out.WriteString(fmt.Sprintf("%s%s%s%s\n", cursor, renderedLabel, strings.Repeat(" ", padW), displayLines[0]))
+
+			target.WriteString(fmt.Sprintf("%s%s%s%s\n", fullCursor, renderedLabel, strings.Repeat(" ", padW), displayLines[0]))
 			for i := 1; i < len(displayLines); i++ {
-				out.WriteString(fmt.Sprintf("%s%s%s%s\n", 
-					strings.Repeat(" ", lipgloss.Width(cursor)), 
-					strings.Repeat(" ", lipgloss.Width(renderedLabel)), 
-					strings.Repeat(" ", padW), 
+				target.WriteString(fmt.Sprintf("%s%s%s%s\n",
+					strings.Repeat(" ", lipgloss.Width(fullCursor)),
+					strings.Repeat(" ", lipgloss.Width(renderedLabel)),
+					strings.Repeat(" ", padW),
 					displayLines[i]))
 			}
 		} else {
 			labelStyleToUse := labelStyle
-			if isEditMode && m.builderCursor == i && !m.editMode && !m.addStepMode {
+			if subFields[row.Field] {
+				labelStyleToUse = subLabelStyle
+			}
+			if isEditMode && m.builderCursor == rowIdx && !m.editMode && !m.addStepMode {
 				labelStyleToUse = selectedStyle
 			}
-			out.WriteString(fmt.Sprintf("%s%s\n", cursor, labelStyleToUse.Render(row.Label)))
+			target.WriteString(fmt.Sprintf("%s%s\n", fullCursor, labelStyleToUse.Render(row.Label)))
 		}
 	}
 
-	for i, row := range renderRows {
-		if row.Type == rowStepHeader && i > 2 {
-			if !isEditMode && i == 2 {
-				out.WriteString("\n" + headerStyle.Render("mission") + "\n")
-				out.WriteString(borderStyle.Render(strings.Repeat("─", w)) + "\n")
+	globalIdx := 0
+
+	for _, row := range infoRows {
+		renderField(&out, row, globalIdx, cardW)
+		globalIdx++
+	}
+
+	out.WriteString("\n" + headerStyle.Render("mission") + "\n")
+	out.WriteString(borderStyle.Render(strings.Repeat("─", cardW)) + "\n")
+
+	for gi, group := range stepGroups {
+		if gi > 0 {
+			conn := cardSepStyle.Render("│")
+			out.WriteString("\n  " + conn + "\n")
+		}
+
+		var cardBuf strings.Builder
+
+		stepColor := getStepColor(group.stepType)
+		cardBuf.WriteString(lipgloss.NewStyle().Foreground(stepColor).Bold(true).Render(group.stepType) + "\n")
+
+		for _, row := range group.rows {
+			switch row.Type {
+			case rowStepHeader:
+				globalIdx++
+				continue
+			case rowSpacer:
+				if row.Field != "EditOnlySpacer" {
+					cardBuf.WriteString("\n")
+				}
+				globalIdx++
+				continue
+			}
+			renderField(&cardBuf, row, globalIdx, cardW-6)
+			globalIdx++
+		}
+
+		cardStyle := cardBase
+		if isStepActive(group.stepIndex) {
+			cardStyle = cardBase.BorderForeground(colorAccent)
+		}
+
+		rendered := cardStyle.Width(cardW).Render(cardBuf.String())
+		out.WriteString(rendered + "\n")
+	}
+
+	if hasAddStep && isEditMode {
+		if m.addStepMode {
+			out.WriteString(fmt.Sprintf("\n  %s\n", m.textInput.View()))
+			sugs, _ := getSuggestions(true, "", "", m.textInput.Value())
+			if len(sugs) > 0 {
+				for j, s := range sugs {
+					if j == 0 {
+						out.WriteString(fmt.Sprintf("    %s\n", lipgloss.NewStyle().Foreground(colorAccent).Render(s)))
+					} else {
+						out.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render(s)))
+					}
+				}
+			}
+		} else {
+			btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			if m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&
+				m.builderRows[m.builderCursor].Type == rowAddStep && !m.addStepMode && !m.editMode {
+				btnStyle = selectedStyle
+			}
+			out.WriteString(fmt.Sprintf("\n  %s\n", btnStyle.Render(addStepRow.Label)))
+		}
+	}
+
+	result := out.String()
+	if leftPad > 0 {
+		lines := strings.Split(result, "\n")
+		for i, line := range lines {
+			if line != "" {
+				lines[i] = leftPadStr + line
 			}
 		}
-		
-		if isEditMode && i == 2 {
-			out.WriteString("\n" + headerStyle.Render("mission") + "\n")
-			out.WriteString(borderStyle.Render(strings.Repeat("─", w)) + "\n")
-		}
-
-		renderRow(i, row)
+		result = strings.Join(lines, "\n")
 	}
-
-	out.WriteString("\n")
-	return out.String()
+	return result
 }
 
 func (m model) renderEnvEditor(w, h int) string {
