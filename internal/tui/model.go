@@ -37,6 +37,7 @@ const (
 	rowAddStep
 	rowAddSubItem
 	rowRemoveSubItem
+	rowDeleteStep
 	rowSpacer
 )
 
@@ -80,6 +81,7 @@ type model struct {
 	editMode      bool
 	addStepMode   bool
 	confirmDelete bool
+	dirty         bool
 	textInput     textinput.Model
 	textArea      textarea.Model
 
@@ -201,6 +203,7 @@ func generateBuilderRows(data *builderData) []builderRow {
 	for i, step := range data.Steps {
 		rows = append(rows, builderRow{Type: rowStepHeader, StepIndex: i, TargetIndex: -1, Label: string(step.Type())})
 		rows = append(rows, step.GetRows(i)...)
+		rows = append(rows, builderRow{Type: rowDeleteStep, StepIndex: i, TargetIndex: -1, Label: "[ - Delete Step ]"})
 		rows = append(rows, builderRow{Type: rowAddStep, StepIndex: i, TargetIndex: -1, Label: "[ + Add Step ]"})
 	}
 	if len(data.Steps) == 0 {
@@ -221,6 +224,7 @@ func (m *model) refreshBuilderRows() {
 	if m.builderCursor < 0 {
 		m.builderCursor = 0
 	}
+	m.dirty = true
 }
 
 func (m model) Init() tea.Cmd {

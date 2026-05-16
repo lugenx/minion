@@ -21,6 +21,7 @@ var (
 	colorActive  = lipgloss.Color("13")
 
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorNormal)
+	dirtyStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorError)
 	borderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
 	
 	headerStyle   = lipgloss.NewStyle().Foreground(colorMuted).Bold(true)
@@ -212,7 +213,10 @@ func (m model) renderHeader(w int) string {
 			} else if m.editMode || m.addStepMode {
 				helpView = mutedStyle.Render("enter Save • esc Cancel")
 			} else {
-				helpView = mutedStyle.Render("↑/k up • ↓/j down • shift+↑/↓ move • x delete • a add • enter edit • s save • esc cancel")
+				helpView = mutedStyle.Render("↑/k up • ↓/j down • shift+↑/↓ move • x delete • a add • enter edit • s save • esc back")
+				if m.dirty {
+					helpView += "    " + dirtyStyle.Render("[unsaved]")
+				}
 			}
 		} else {
 			m.help.ShortSeparator = " • "
@@ -445,9 +449,10 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 
 	title := "Configuration"
 	if isEditMode {
-		title = "Builder: " + d.Name
 		if d.IsNew {
-			title = "Builder: New Minion"
+			title = "New Minion"
+		} else {
+			title = d.Name
 		}
 	} else {
 		title = d.Name
@@ -543,22 +548,34 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 		}
 
 		indent := "  "
-		if row.Type == rowStepField || row.Type == rowAddSubItem || row.Type == rowRemoveSubItem {
+		if row.Type == rowStepField || row.Type == rowAddSubItem || row.Type == rowRemoveSubItem || row.Type == rowDeleteStep {
 			indent = "  "
 		}
 		fullCursor := indent + cursor
 
-		if row.Type == rowAddSubItem || row.Type == rowRemoveSubItem {
+		if row.Type == rowAddSubItem || row.Type == rowRemoveSubItem || row.Type == rowDeleteStep {
 			if isEditMode {
 				btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 				if m.builderCursor == rowIdx && !m.editMode && !m.addStepMode {
 					btnStyle = selectedStyle
-					if row.Type == rowRemoveSubItem {
+					if row.Type != rowAddSubItem {
 						btnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("232")).Background(lipgloss.Color("1")).Bold(true).Padding(0, 1)
 					}
 				}
-				padW := 15
-				target.WriteString(fmt.Sprintf("%s%s%s\n", fullCursor, strings.Repeat(" ", padW), btnStyle.Render(row.Label)))
+				if row.Type == rowDeleteStep {
+					btn := btnStyle.Render(row.Label)
+					line := cursor + btn
+					lineW := lipgloss.Width(line)
+					availW := cardW - 6
+					pad := (availW - lineW) / 2
+					if pad < 0 {
+						pad = 0
+					}
+					target.WriteString(strings.Repeat(" ", pad) + line)
+				} else {
+					padW := 15
+					target.WriteString(fmt.Sprintf("%s%s%s\n", fullCursor, strings.Repeat(" ", padW), btnStyle.Render(row.Label)))
+				}
 			}
 			return
 		}
@@ -767,13 +784,21 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 				globalIdx++
 				continue
 			}
+			if row.Type == rowDeleteStep && isEditMode {
+				cardBuf.WriteString("\n")
+				sep := borderStyle.Render(strings.Repeat("─", cardW-6))
+				cardBuf.WriteString("  " + sep + "\n")
+			}
 			renderField(&cardBuf, row, globalIdx, cardW-6)
 			globalIdx++
 		}
 
 		cardStyle := cardBase
+		if isEditMode {
+			cardStyle = cardBase.Padding(1, 2, 0, 2)
+		}
 		if isStepActive(group.stepIndex) {
-			cardStyle = cardBase.BorderForeground(colorAccent)
+			cardStyle = cardStyle.BorderForeground(colorAccent)
 		}
 
 		rendered := cardStyle.Width(cardW).Render(cardBuf.String())
@@ -801,10 +826,12 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 				}
 			} else {
 				btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+				prefix := "  "
 				if cursorOnThis {
 					btnStyle = selectedStyle
+					prefix = "  > "
 				}
-				out.WriteString(fmt.Sprintf("  %s\n", btnStyle.Render("[ + Add Step ]")))
+				out.WriteString(fmt.Sprintf("%s%s\n", prefix, btnStyle.Render("[ + Add Step ]")))
 			}
 		}
 	}
@@ -831,10 +858,12 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 			}
 		} else {
 			btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			prefix := "  "
 			if cursorOnThis {
 				btnStyle = selectedStyle
+				prefix = "  > "
 			}
-			out.WriteString(fmt.Sprintf("\n  %s\n", btnStyle.Render(row.Label)))
+			out.WriteString(fmt.Sprintf("\n%s%s\n", prefix, btnStyle.Render(row.Label)))
 		}
 	}
 

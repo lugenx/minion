@@ -103,7 +103,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if keyMsg, ok := msg.(tea.KeyMsg); ok {
 				if keyMsg.String() == "y" || keyMsg.String() == "Y" {
 					row := m.builderRows[m.builderCursor]
-					if row.Type == rowStepHeader {
+					isStepDelete := row.Type == rowStepHeader || row.Type == rowDeleteStep
+					if isStepDelete {
 						steps := m.builderData.Steps
 						m.builderData.Steps = append(steps[:row.StepIndex], steps[row.StepIndex+1:]...)
 					} else if (row.Type == rowStepField || row.Type == rowRemoveSubItem) && row.TargetIndex != -1 {
@@ -111,8 +112,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						step.RemoveArrayItem(row.Field, row.TargetIndex)
 					}
 					m.refreshBuilderRows()
-					if m.builderCursor >= len(m.builderRows) {
-						m.builderCursor = len(m.builderRows) - 1
+					if isStepDelete {
+						deletedIdx := row.StepIndex
+						if len(m.builderData.Steps) > deletedIdx {
+							for i, r := range m.builderRows {
+								if r.Type == rowStepHeader && r.StepIndex == deletedIdx {
+									m.builderCursor = i
+									break
+								}
+							}
+						} else if len(m.builderData.Steps) > 0 {
+							prevIdx := len(m.builderData.Steps) - 1
+							for i, r := range m.builderRows {
+								if r.Type == rowAddStep && r.StepIndex == prevIdx {
+									m.builderCursor = i
+									break
+								}
+							}
+						} else if m.builderCursor >= len(m.builderRows) {
+							m.builderCursor = len(m.builderRows) - 1
+						}
+					} else {
+						if m.builderCursor >= len(m.builderRows) {
+							m.builderCursor = len(m.builderRows) - 1
+						}
 					}
 				}
 				m.confirmDelete = false
@@ -332,8 +355,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case key.Matches(keyMsg, m.keys.Quit):
 					return m, tea.Quit
 				case key.Matches(keyMsg, m.keys.Back):
-					m.state = stateDashboard
-					m.loadState()
+					if m.builderData != nil && m.builderData.IsNew {
+						m.state = stateDashboard
+						m.loadState()
+					} else {
+						m.state = stateDetail
+						m.builderViewport.SetYOffset(0)
+					}
 					m.syncBuilderViewport()
 					return m, nil
 				case key.Matches(keyMsg, m.keys.Up):
@@ -377,7 +405,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					case keyMsg.String() == "x" || keyMsg.String() == "delete":
 						row := m.builderRows[m.builderCursor]
-						if row.Type == rowStepHeader || ((row.Type == rowStepField || row.Type == rowRemoveSubItem) && row.TargetIndex != -1) {
+						if row.Type == rowStepHeader || row.Type == rowDeleteStep || ((row.Type == rowStepField || row.Type == rowRemoveSubItem) && row.TargetIndex != -1) {
 							m.confirmDelete = true
 						}
 				case keyMsg.String() == "a":
@@ -390,10 +418,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, textinput.Blink)
 				case keyMsg.String() == "s":
 					_ = saveBuilder(m.builderData)
-					m.state = stateDashboard
-					m.loadState()
+					m.dirty = false
 					m.syncBuilderViewport()
-					return m, nil
 				case keyMsg.String() == "enter" || keyMsg.String() == "e":
 					row := m.builderRows[m.builderCursor]
 					
@@ -411,7 +437,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						step := m.builderData.Steps[row.StepIndex]
 						_ = step.UpdateField("BrowseRenderToggle", row.TargetIndex, "")
 						m.refreshBuilderRows()
-					} else if row.Type == rowRemoveSubItem {
+					} else if row.Type == rowRemoveSubItem || row.Type == rowDeleteStep {
 						m.confirmDelete = true
 					} else if row.Type == rowAddSubItem {
 						step := m.builderData.Steps[row.StepIndex]
@@ -660,6 +686,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case key.Matches(msg, m.keys.New):
 					m.builderData = initBuilderData(nil)
 					m.refreshBuilderRows()
+					m.dirty = false
 					m.builderCursor = 0
 					m.editMode = true
 					m.textInput.Reset()
@@ -736,6 +763,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							
 							m.builderData = initBuilderData(rawMinion)
 							m.refreshBuilderRows()
+							m.dirty = false
 							m.builderCursor = 0
 							m.editMode = false
 							m.state = stateForm
@@ -864,9 +892,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								if rawMinion == nil {
 									rawMinion = selected
 								}
-								m.builderData = initBuilderData(rawMinion)
-								m.refreshBuilderRows()
-								m.builderCursor = 0
+							m.builderData = initBuilderData(rawMinion)
+							m.refreshBuilderRows()
+							m.dirty = false
+							m.builderCursor = 0
 								m.editMode = false
 								m.state = stateForm
 								m.syncBuilderViewport()
