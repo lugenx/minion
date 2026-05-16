@@ -201,9 +201,8 @@ func generateBuilderRows(data *builderData) []builderRow {
 	for i, step := range data.Steps {
 		rows = append(rows, builderRow{Type: rowStepHeader, StepIndex: i, TargetIndex: -1, Label: string(step.Type())})
 		rows = append(rows, step.GetRows(i)...)
+		rows = append(rows, builderRow{Type: rowAddStep, StepIndex: i, TargetIndex: -1, Label: "[ + Add Step ]"})
 	}
-	
-	rows = append(rows, builderRow{Type: rowAddStep, StepIndex: -1, TargetIndex: -1, Label: "[ + Add New Step ]"})
 	return rows
 }
 

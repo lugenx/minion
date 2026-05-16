@@ -487,14 +487,9 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 
 	var infoRows []builderRow
 	var stepGroups []stepGroupData
-	var addStepRow builderRow
-	var hasAddStep bool
 
 	for _, row := range renderRows {
 		switch row.Type {
-		case rowAddStep:
-			hasAddStep = true
-			addStepRow = row
 		case rowStepHeader:
 			stepGroups = append(stepGroups, stepGroupData{
 				stepIndex: row.StepIndex,
@@ -530,6 +525,10 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 	}
 
 	isStepActive := func(si int) bool {
+		if m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&
+			m.builderRows[m.builderCursor].Type == rowAddStep {
+			return false
+		}
 		return isEditMode && cursorStepIndex == si && !m.editMode && !m.addStepMode
 	}
 
@@ -760,6 +759,9 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 				}
 				globalIdx++
 				continue
+			case rowAddStep:
+				globalIdx++
+				continue
 			}
 			renderField(&cardBuf, row, globalIdx, cardW-6)
 			globalIdx++
@@ -772,28 +774,34 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 
 		rendered := cardStyle.Width(cardW).Render(cardBuf.String())
 		out.WriteString(rendered + "\n")
-	}
 
-	if hasAddStep && isEditMode {
-		if m.addStepMode {
-			out.WriteString(fmt.Sprintf("\n  %s\n", m.textInput.View()))
-			sugs, _ := getSuggestions(true, "", "", m.textInput.Value())
-			if len(sugs) > 0 {
-				for j, s := range sugs {
-					if j == 0 {
-						out.WriteString(fmt.Sprintf("    %s\n", lipgloss.NewStyle().Foreground(colorAccent).Render(s)))
-					} else {
-						out.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render(s)))
+		if isEditMode {
+			conn := cardSepStyle.Render("│")
+			out.WriteString("  " + conn + "\n")
+
+			cursorOnThis := m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&
+				m.builderRows[m.builderCursor].Type == rowAddStep &&
+				m.builderRows[m.builderCursor].StepIndex == group.stepIndex
+
+			if m.addStepMode && cursorOnThis {
+				out.WriteString(fmt.Sprintf("  %s\n", m.textInput.View()))
+				sugs, _ := getSuggestions(true, "", "", m.textInput.Value())
+				if len(sugs) > 0 {
+					for j, s := range sugs {
+						if j == 0 {
+							out.WriteString(fmt.Sprintf("    %s\n", lipgloss.NewStyle().Foreground(colorAccent).Render(s)))
+						} else {
+							out.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render(s)))
+						}
 					}
 				}
+			} else {
+				btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+				if cursorOnThis {
+					btnStyle = selectedStyle
+				}
+				out.WriteString(fmt.Sprintf("  %s\n", btnStyle.Render("[ + Add Step ]")))
 			}
-		} else {
-			btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-			if m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&
-				m.builderRows[m.builderCursor].Type == rowAddStep && !m.addStepMode && !m.editMode {
-				btnStyle = selectedStyle
-			}
-			out.WriteString(fmt.Sprintf("\n  %s\n", btnStyle.Render(addStepRow.Label)))
 		}
 	}
 

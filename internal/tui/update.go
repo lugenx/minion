@@ -172,7 +172,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 						
 						if newStep != nil {
-							m.builderData.Steps = append(m.builderData.Steps, newStep)
+							insertIdx := m.builderRows[m.builderCursor].StepIndex + 1
+							m.builderData.Steps = append(m.builderData.Steps[:insertIdx],
+								append([]Step{newStep}, m.builderData.Steps[insertIdx:]...)...)
 							m.refreshBuilderRows()
 							
 							// Auto-focus the first field of the newly added step
@@ -180,7 +182,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.addStepMode = false
 							m.textInput.Blur()
 							
-							targetStepIndex := len(m.builderData.Steps) - 1
+							targetStepIndex := insertIdx
 							for i, r := range m.builderRows {
 								if r.Type == rowStepField && r.StepIndex == targetStepIndex {
 									m.builderCursor = i
