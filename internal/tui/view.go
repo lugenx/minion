@@ -55,7 +55,7 @@ func (m model) View() string {
 	var content string
 	switch m.state {
 	case stateDashboard:
-		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderList(innerW, contentH))
+		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Render(m.renderList(innerW, contentH))
 	case stateDetail:
 		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.builderViewport.View())
 	case stateForm:
@@ -196,30 +196,16 @@ func (m model) renderHeader(w int) string {
 			return mutedStyle.Render("No minions found.\nPress 'n' to create one.")
 		}
 
-		overhead := 6
+		nameW := 30
 		schedW := 13
 		nextW := 11
-		maxNameW := 30
-		nameW := w - overhead - schedW - nextW
-		if nameW > maxNameW {
-			nameW = maxNameW
-		}
-		if nameW < 8 {
-			excess := 8 - nameW
-			schedW -= excess / 2
-			nextW -= (excess + 1) / 2
-			if schedW < 8 { schedW = 8 }
-			if nextW < 6 { nextW = 6 }
-			nameW = w - overhead - schedW - nextW
-		}
-		if nameW < 4 { nameW = 4 }
 
 		var headerLines []string
 		nameHPad := nameW - lipgloss.Width("NAME")
 		if nameHPad < 0 { nameHPad = 0 }
 		schedHPad := schedW - lipgloss.Width("SCHEDULE")
 		if schedHPad < 0 { schedHPad = 0 }
-		headerLines = append(headerLines, fmt.Sprintf("    %s%s %s%s %s",
+		headerLines = append(headerLines, fmt.Sprintf("    %s%s %s%s   %s",
 			headerStyle.Render("NAME"), strings.Repeat(" ", nameHPad),
 			headerStyle.Render("SCHEDULE"), strings.Repeat(" ", schedHPad),
 			headerStyle.Render("NEXT RUN")))
@@ -320,7 +306,7 @@ func (m model) renderHeader(w int) string {
 			nextPad := nextW - lipgloss.Width(nextStatus)
 			if nextPad < 0 { nextPad = 0 }
 
-			row := fmt.Sprintf(" %s %s%s%s %s%s %s%s",
+			row := fmt.Sprintf(" %s %s%s%s %s%s   %s%s",
 				dot, cursor, nameStyle.Render(name), strings.Repeat(" ", namePad),
 				schedStatus, strings.Repeat(" ", schedPad),
 				nextStatus, strings.Repeat(" ", nextPad))
@@ -334,6 +320,19 @@ func (m model) renderHeader(w int) string {
 		if start > end { start = end }
 
 		visibleRows := append(headerLines, minionRows[start:end]...)
+
+		tableW := 1 + 1 + 1 + 1 + nameW + 1 + schedW + 3 + nextW
+		pad := 0
+		if w > tableW {
+			pad = (w - tableW) / 2
+		}
+		if pad > 0 {
+			prefix := strings.Repeat(" ", pad)
+			for i, line := range visibleRows {
+				visibleRows[i] = prefix + line
+			}
+		}
+
 		return strings.Join(visibleRows, "\n")
 	}
 
