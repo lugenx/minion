@@ -556,6 +556,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logViewport.Height = vpHeight
 		}
 
+		if m.state == stateDetail || m.state == stateForm {
+			m.syncBuilderViewport()
+		}
+
 		case tea.KeyMsg:
 			switch {
 					case key.Matches(msg, m.keys.Quit):
