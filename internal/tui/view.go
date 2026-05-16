@@ -730,6 +730,10 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 	globalIdx := 0
 
 	for _, row := range infoRows {
+		if row.Type == rowAddStep {
+			globalIdx++
+			continue
+		}
 		renderField(&out, row, globalIdx, cardW)
 		globalIdx++
 	}
@@ -802,6 +806,35 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 				}
 				out.WriteString(fmt.Sprintf("  %s\n", btnStyle.Render("[ + Add Step ]")))
 			}
+		}
+	}
+
+	for _, row := range infoRows {
+		if row.Type != rowAddStep || !isEditMode {
+			continue
+		}
+		cursorOnThis := m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&
+			m.builderRows[m.builderCursor].Type == rowAddStep &&
+			m.builderRows[m.builderCursor].StepIndex == row.StepIndex
+
+		if m.addStepMode && cursorOnThis {
+			out.WriteString(fmt.Sprintf("\n  %s\n", m.textInput.View()))
+			sugs, _ := getSuggestions(true, "", "", m.textInput.Value())
+			if len(sugs) > 0 {
+				for j, s := range sugs {
+					if j == 0 {
+						out.WriteString(fmt.Sprintf("    %s\n", lipgloss.NewStyle().Foreground(colorAccent).Render(s)))
+					} else {
+						out.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render(s)))
+					}
+				}
+			}
+		} else {
+			btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			if cursorOnThis {
+				btnStyle = selectedStyle
+			}
+			out.WriteString(fmt.Sprintf("\n  %s\n", btnStyle.Render(row.Label)))
 		}
 	}
 
