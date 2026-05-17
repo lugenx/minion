@@ -238,7 +238,9 @@ func runDaemon() {
 			processRunQueue(daemonCtx, dbStore, llmEval, activeCancels)
 			processAbortQueue(dbStore, activeCancels)
 			
-			if active, _ := dbStore.GetActiveMinions(); len(active) == 0 {
+			activeJobs, _ := dbStore.GetActiveJobs()
+			activeMinions, _ := dbStore.GetActiveMinions()
+			if len(activeJobs) == 0 && len(activeMinions) == 0 {
 				return
 			}
 		case <-sigChan:
