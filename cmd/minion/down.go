@@ -79,6 +79,12 @@ Usage:
 			}
 			os.Exit(1)
 		}
+
+		// Clear stale entries so daemon can self-exit cleanly
+		if target == "all" {
+			_ = dbStore.ClearActiveJobs()
+			_ = dbStore.ClearAbortQueue()
+		}
 	},
 }
 

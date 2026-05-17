@@ -303,3 +303,8 @@ func (s *Store) ClearActiveJobs() error {
 	_, err := s.db.Exec("DELETE FROM active_jobs")
 	return err
 }
+
+func (s *Store) ClearAbortQueue() error {
+	_, err := s.db.Exec("DELETE FROM abort_queue")
+	return err
+}

@@ -204,6 +204,7 @@ func runDaemon() {
 	defer dbStore.Close()
 	
 	_ = dbStore.ClearActiveJobs()
+	_ = dbStore.ClearAbortQueue()
 
 	llmEval, err := llm.NewEvaluator()
 	if err != nil {
@@ -235,13 +236,15 @@ func runDaemon() {
 		select {
 		case <-ticker.C:
 			syncFleet(daemonCtx, dbStore, llmEval, c, scheduledJobs, activeCancels)
-			processRunQueue(daemonCtx, dbStore, llmEval, activeCancels)
+			ranWork := processRunQueue(daemonCtx, dbStore, llmEval, activeCancels)
 			processAbortQueue(dbStore, activeCancels)
 			
-			activeJobs, _ := dbStore.GetActiveJobs()
-			activeMinions, _ := dbStore.GetActiveMinions()
-			if len(activeJobs) == 0 && len(activeMinions) == 0 {
-				return
+			if !ranWork {
+				activeJobs, _ := dbStore.GetActiveJobs()
+				activeMinions, _ := dbStore.GetActiveMinions()
+				if len(activeJobs) == 0 && len(activeMinions) == 0 {
+					return
+				}
 			}
 		case <-sigChan:
 			fmt.Println()
@@ -298,27 +301,24 @@ func syncFleet(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator
 	}
 }
 
-func processRunQueue(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator, activeCancels *sync.Map) {
+func processRunQueue(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator, activeCancels *sync.Map) bool {
 	queue, err := dbStore.GetRunQueue()
 	if err != nil || len(queue) == 0 {
-		return
+		return false
 	}
 
+	spawned := false
 	for _, filename := range queue {
 		m, err := config.LoadMinion(filename)
 		if err == nil {
-			if !dbStore.GetMinionStatus(m.Filename) {
-				logMessage("WARN", m.Name, "Cannot trigger minion because it is unscheduled/inactive.")
-				_ = dbStore.DequeueRun(filename)
-				continue
-			}
-
 			logMessage("INFO", m.Name, "Triggering immediate manual execution from queue.")
 			// Execute in background routine so we don't block the 1s loop
 			go executeMinion(ctx, dbStore, llmEval, m, "manual", activeCancels)
+			spawned = true
 		}
 		_ = dbStore.DequeueRun(filename)
 	}
+	return spawned
 }
 
 func processAbortQueue(dbStore *store.Store, activeCancels *sync.Map) {
