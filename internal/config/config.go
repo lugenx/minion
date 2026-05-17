@@ -10,13 +10,35 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MinionConfig represents a v2 task. It contains an array of raw pipeline steps.
+type Source struct {
+	URL    string `yaml:"url,omitempty"`
+	Render bool   `yaml:"render,omitempty"`
+	Match  string `yaml:"match,omitempty"`
+	Search string `yaml:"search,omitempty"`
+	Limit  int    `yaml:"limit,omitempty"`
+	Minion string `yaml:"minion,omitempty"`
+	SourceType string `yaml:"-"`
+}
+
+type Settings struct {
+	Timeout int `yaml:"timeout,omitempty"`
+	Delay   int `yaml:"delay,omitempty"`
+}
+
+// MinionConfig represents a task schema.
 type MinionConfig struct {
-	Name     string                   `yaml:"name"`
-	Enabled  *bool                    `yaml:"enabled"`
-	Mission  []map[string]interface{} `yaml:"mission"`
-	
-	Filename string                   `yaml:"-"`
+	Name     string                 `yaml:"name"`
+	Enabled  *bool                  `yaml:"enabled"` // Legacy support
+	When     string                 `yaml:"when,omitempty"`
+	From     []Source               `yaml:"from"`
+	Keep     []string               `yaml:"keep,omitempty"`
+	Ignore   []string               `yaml:"ignore,omitempty"`
+	Do       string                 `yaml:"do"`
+	Tell     map[string]interface{} `yaml:"tell,omitempty"`
+	Report   map[string]interface{} `yaml:"report,omitempty"`
+	Settings Settings               `yaml:"settings,omitempty"`
+
+	Filename string `yaml:"-"`
 }
 
 var (
@@ -45,7 +67,7 @@ type MasksFile struct {
 func init() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		homeDir = "." 
+		homeDir = "."
 	}
 
 	GlobalConfigDir = filepath.Join(homeDir, ".config", "minion")
@@ -71,7 +93,7 @@ func EnsureDirectories() error {
 	} else if _, err := os.Stat(filepath.Join(MinionsDir, "example.yaml")); os.IsNotExist(err) {
 		scaffoldExampleFiles()
 	}
-	
+
 	if _, err := os.Stat(MasksPath); os.IsNotExist(err) {
 		scaffoldMasksFile()
 	}
@@ -81,7 +103,7 @@ func EnsureDirectories() error {
 
 func scaffoldExampleFiles() {
 	envContent := `# =================================================================
-# MINION V2 SECRETS & CONFIGURATION
+# MINION SECRETS & CONFIGURATION
 # =================================================================
 # This file is loaded automatically by the minion engine.
 # You can inject these variables into your minion YAML files using ${VAR_NAME}
@@ -91,100 +113,51 @@ OPENROUTER_API_KEY=your_api_key_here
 
 # OPTIONAL: The model you want the engine to use (Defaults to gpt-4o-mini if missing)
 DEFAULT_MODEL=openai/gpt-4o-mini
-
-# OPTIONAL: Example of custom secrets you can inject into your YAML files.
-# If you run a private server that requires basic auth, store the credentials here.
-# MY_USERNAME=admin
-# MY_PASSWORD=super_secret_password
 `
 	_ = os.WriteFile(EnvPath, []byte(envContent), 0644)
 
-	exampleContent := `# =================================================================
-# MINION V2 REFERENCE GUIDE
-# =================================================================
-# Minion v2 operates on a linear stream. It gathers all URLs from 
-# your search and browse blocks, and then passes them one-by-one 
-# through the rest of the pipeline.
+	exampleContent := `name: Tech Meetup Finder
+when: daily @ 09:00
 
-name: "Tech Event Tracker"
-enabled: false # Set to true to let the daemon run this
+from:
+  # 1. Direct Scrape
+  - url: https://events.example.com
 
-mission:
-  # --- 1. SCHEDULING SYNTAX ---
-  # Groups:   "daily @ 09:00", "weekdays @ 18:00", "weekends @ 12:00"
-  # Specific: "mon, wed, fri @ 17:30"
-  # Interval: "every 30m", "every 12h"
-  # Raw Cron: "*/15 * * * *"
-  - schedule: "daily @ 09:00"
+  # 2. Rendered Scrape (Headless Browser)
+  - url: https://community.example.com/discover
+    render: true
 
-  # --- 2. GENERATORS (Gathering Data) ---
-  - search: 
-      - "latest open source AI models"
-      - "AI startup news"
+  # 3. Crawler (Finds matching links, then scrapes them)
+  - url: https://calendar.example.com/events
+    match: /events
+
+  # 4. Search Generator
+  - search: programming meetups this week
     limit: 3
 
-  - browse:
-      # If no rule is given, it just returns this exact link
-      - url: "https://example.com/news"
-      
-      # If a rule is given, it browses the page and returns the matching sub-links
-      # Supports full Regex!
-      - url: "https://example.com/events"
-        match: "/events/"
+keep:
+  - golang
+  - rust
+  - artificial intelligence
+  - open source
 
-  # --- 3. THE PIPELINE (Runs one-by-one on the gathered links) ---
-  
-  # Fast Filter (Optional): Drop or Keep links before scraping them using simple keyword matching.
-  - filter: 
-      # keep: ["ai", "machine learning"] # Must match at least one (if defined)
-      drop: ["webinar", "online only"]   # Drop is evaluated first
+ignore:
+  - webinar
+  - online only
+  - virtual
 
-  # Scrape: Download the actual HTML text of the clean links
-  - scrape:
-      timeout: 15
-      delay: 2 # Max seconds to pause before scraping to avoid bot detection
+do: Summarize each event with date, location, and topic.
 
-  # Study: Tell the minion exactly what you are looking for
-  - study:
-      task: |
-        Looking for tech events or any nerdy events.
-        Must occur on Tuesday/Wednesday after 17:00, or Saturday after 15:00.
-        Must be in-person in New York.
+tell:
+  ntfy: https://ntfy.sh/your-topic-here
+  markdown: true
 
-  # --- 4. DELIVERY ---
-  # Send the results anywhere you want. You can define multiple targets!
-  - deliver:
-      - ntfy: "https://ntfy.sh/mytopic"
-        # basic_auth:
-        #   username: "${MY_USERNAME}"
-        #   password: "${MY_PASSWORD}"
-        
-      # - discord: "https://discord.com/api/webhooks/..."
-      
-      # - minion: "my_worker_minion_filename"
-      
-      # - http_request: "https://custom-api.com/v1/data"
-      #   method: "POST"
-      #   headers:
-      #     Content-Type: "application/json"
-      #   payload_template: |
-      #     {"custom_title": "{{.Title}}", "desc": "{{.Summary}}"}
+report:
+  # ntfy: https://ntfy.sh/your-topic-here
 
-# =================================================================
-# EXAMPLE WORKER MINION
-# =================================================================
-# If you created a separate file called my_worker.yaml to receive 
-# data from this minion, it would look like this:
-#
-# name: "Worker Bot"
-# enabled: true
-# mission:
-#   - receive: "Tech Event Tracker"
-#   - scrape:
-#   - study:
-#       task: "Summarize this."
-#   - deliver:
-#       - ntfy: "https://ntfy.sh/alerts"
+settings:
+  timeout: 15
+  delay: 2
 `
 	examplePath := filepath.Join(MinionsDir, "example.yaml")
 	_ = os.WriteFile(examplePath, []byte(exampleContent), 0644)
@@ -270,7 +243,7 @@ func LoadMinion(filename string) (*MinionConfig, error) {
 	if !strings.HasSuffix(filename, ".yaml") && !strings.HasSuffix(filename, ".yml") {
 		filename += ".yaml"
 	}
-	
+
 	path := filename
 	if !filepath.IsAbs(path) && !strings.Contains(path, string(os.PathSeparator)) {
 		path = filepath.Join(MinionsDir, filename)
@@ -285,12 +258,12 @@ func LoadMinion(filename string) (*MinionConfig, error) {
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("failed to parse minion YAML %s: %w", path, err)
 	}
-	
+
 	if m.Enabled == nil {
 		defaultEnabled := true
 		m.Enabled = &defaultEnabled
 	}
-	
+
 	m.Filename = filepath.Base(path)
 	return &m, nil
 }

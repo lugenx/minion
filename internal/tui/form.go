@@ -17,9 +17,9 @@ type formData struct {
 	Enabled    bool
 	Schedule   string
 	Search     string
-	BrowseURL  string
-	StudyTask  string
-	DeliverURL string
+	URL        string
+	Task       string
+	WebhookURL string
 	Filename   string
 	IsNew      bool
 }
@@ -36,53 +36,25 @@ func buildForm(m *config.MinionConfig) (*huh.Form, *formData) {
 			data.Enabled = *m.Enabled
 		}
 		data.Filename = m.Filename
+		data.Schedule = m.When
+		data.Task = m.Do
 
-		// Extract fields from Mission array
-		for _, step := range m.Mission {
-			if val, ok := step["schedule"]; ok {
-				data.Schedule = fmt.Sprintf("%v", val)
-			}
-			if val, ok := step["search"]; ok {
-				if searches, ok := val.([]interface{}); ok {
-					var s []string
-					for _, search := range searches {
-						s = append(s, fmt.Sprintf("%v", search))
-					}
-					data.Search = strings.Join(s, ", ")
+		if len(m.From) > 0 {
+			for _, src := range m.From {
+				if src.URL != "" && data.URL == "" {
+					data.URL = src.URL
+				}
+				if src.Search != "" && data.Search == "" {
+					data.Search = src.Search
 				}
 			}
-			if val, ok := step["browse"]; ok {
-				if browses, ok := val.([]interface{}); ok {
-					if len(browses) > 0 {
-						if bMap, ok := browses[0].(map[string]interface{}); ok {
-							if u, ok := bMap["url"]; ok {
-								data.BrowseURL = fmt.Sprintf("%v", u)
-							}
-						}
-					}
-				}
-			}
-			if val, ok := step["study"]; ok {
-				if sMap, ok := val.(map[string]interface{}); ok {
-					if t, ok := sMap["task"]; ok {
-						data.StudyTask = fmt.Sprintf("%v", t)
-					}
-				}
-			}
-			if val, ok := step["deliver"]; ok {
-				if dArr, ok := val.([]interface{}); ok {
-					if len(dArr) > 0 {
-						if dMap, ok := dArr[0].(map[string]interface{}); ok {
-							// Just grab the first key-value that is a string, typically ntfy, discord, or http_request
-							for _, v := range dMap {
-								if s, ok := v.(string); ok {
-									data.DeliverURL = s
-									break
-								}
-							}
-						}
-					}
-				}
+		}
+
+		if len(m.Tell) > 0 {
+			if ntfy, ok := m.Tell["ntfy"]; ok {
+				data.WebhookURL = fmt.Sprintf("%v", ntfy)
+			} else if discord, ok := m.Tell["discord"]; ok {
+				data.WebhookURL = fmt.Sprintf("%v", discord)
 			}
 		}
 	}
@@ -111,24 +83,24 @@ func buildForm(m *config.MinionConfig) (*huh.Form, *formData) {
 
 		huh.NewGroup(
 			huh.NewInput().
-				Title("Web Search Queries (comma-separated)").
-				Value(&data.Search),
+				Title("Data Source URL (Optional)").
+				Value(&data.URL),
 			huh.NewInput().
-				Title("Specific URL to Browse").
-				Value(&data.BrowseURL),
-		).Title("3. Data Sources"),
+				Title("Web Search Query (Optional)").
+				Value(&data.Search),
+		).Title("3. Input Sources"),
 
 		huh.NewGroup(
 			huh.NewText().
-				Title("Study Instructions (Plain English task for the AI)").
-				Value(&data.StudyTask).
+				Title("Task Instructions for AI (What to find?)").
+				Value(&data.Task).
 				Lines(5),
-		).Title("4. AI Brain"),
+		).Title("4. AI Processing"),
 
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Webhook URL for Delivery (e.g. Ntfy, Discord)").
-				Value(&data.DeliverURL),
+				Value(&data.WebhookURL),
 		).Title("5. Delivery"),
 	)
 
@@ -142,71 +114,33 @@ func saveForm(data *formData) error {
 		filename = safeName + ".yaml"
 	}
 
-	// Build the mission array
-	var mission []map[string]interface{}
-
-	if strings.TrimSpace(data.Schedule) != "" {
-		mission = append(mission, map[string]interface{}{"schedule": strings.TrimSpace(data.Schedule)})
+	var sources []config.Source
+	if strings.TrimSpace(data.URL) != "" {
+		sources = append(sources, config.Source{URL: strings.TrimSpace(data.URL)})
 	}
-
 	if strings.TrimSpace(data.Search) != "" {
-		searches := strings.Split(data.Search, ",")
-		var sArr []string
-		for _, s := range searches {
-			clean := strings.TrimSpace(s)
-			if clean != "" {
-				sArr = append(sArr, clean)
-			}
-		}
-		if len(sArr) > 0 {
-			mission = append(mission, map[string]interface{}{
-				"search": sArr,
-				"limit":  3,
-			})
-		}
+		sources = append(sources, config.Source{Search: strings.TrimSpace(data.Search), Limit: 3})
 	}
 
-	if strings.TrimSpace(data.BrowseURL) != "" {
-		mission = append(mission, map[string]interface{}{
-			"browse": []map[string]interface{}{
-				{"url": strings.TrimSpace(data.BrowseURL)},
-			},
-		})
-	}
-
-	mission = append(mission, map[string]interface{}{
-		"scrape": map[string]interface{}{
-			"timeout": 15,
-		},
-	})
-
-	if strings.TrimSpace(data.StudyTask) != "" {
-		mission = append(mission, map[string]interface{}{
-			"study": map[string]interface{}{
-				"task": strings.TrimSpace(data.StudyTask),
-			},
-		})
-	}
-
-	if strings.TrimSpace(data.DeliverURL) != "" {
-		target := "http_request"
-		if strings.Contains(data.DeliverURL, "ntfy.sh") {
-			target = "ntfy"
-		} else if strings.Contains(data.DeliverURL, "discord.com") {
-			target = "discord"
+	tellMap := make(map[string]interface{})
+	if strings.TrimSpace(data.WebhookURL) != "" {
+		if strings.Contains(data.WebhookURL, "ntfy.sh") {
+			tellMap["ntfy"] = strings.TrimSpace(data.WebhookURL)
+		} else if strings.Contains(data.WebhookURL, "discord.com") {
+			tellMap["discord"] = strings.TrimSpace(data.WebhookURL)
+		} else {
+			tellMap["http_request"] = strings.TrimSpace(data.WebhookURL)
 		}
-
-		mission = append(mission, map[string]interface{}{
-			"deliver": []map[string]interface{}{
-				{target: strings.TrimSpace(data.DeliverURL)},
-			},
-		})
 	}
 
 	mConfig := config.MinionConfig{
-		Name:    data.Name,
-		Enabled: &data.Enabled,
-		Mission: mission,
+		Name:     data.Name,
+		Enabled:  &data.Enabled,
+		When:     strings.TrimSpace(data.Schedule),
+		From:     sources,
+		Do:       strings.TrimSpace(data.Task),
+		Tell:     tellMap,
+		Settings: config.Settings{Timeout: 15, Delay: 2},
 	}
 
 	yamlData, err := yaml.Marshal(mConfig)

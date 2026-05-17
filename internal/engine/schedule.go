@@ -8,14 +8,9 @@ import (
 	"minion/internal/config"
 )
 
-// ExtractSchedule finds the schedule string in the mission array
+// ExtractSchedule simply returns the 'when' field from the config
 func ExtractSchedule(m *config.MinionConfig) string {
-	for _, step := range m.Mission {
-		if val, ok := step["schedule"]; ok {
-			return fmt.Sprintf("%v", val)
-		}
-	}
-	return ""
+	return m.When
 }
 
 // ParseToCron converts custom schedule strings to a standard cron expression.

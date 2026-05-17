@@ -183,15 +183,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 							var newStep Step
 							switch val {
-							case "schedule": newStep = &ScheduleStep{}
-							case "search": newStep = &SearchStep{Limit: "3"}
-							case "browse": newStep = &BrowseStep{Targets: []BrowseTarget{{}}}
-							case "filter": newStep = &FilterStep{}
-							case "scrape": newStep = &ScrapeStep{Timeout: "15", Delay: "2"}
-							case "study": newStep = &StudyStep{}
-							case "deliver": newStep = &DeliverStep{}
-							case "receive": newStep = &ReceiveStep{}
+							case "when": newStep = &WhenStep{}
+							case "from": newStep = &FromStep{Sources: []config.Source{{}}}
+							case "keep": newStep = &KeepStep{}
+							case "ignore": newStep = &IgnoreStep{}
+							case "do": newStep = &DoStep{}
+							case "tell": newStep = &TellStep{}
 							case "report": newStep = &ReportStep{}
+							case "settings": newStep = &SettingsStep{Settings: config.Settings{Timeout: 15, Delay: 2}}
 							}
 						
 						if newStep != nil {
@@ -211,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.builderCursor = i
 									
 									// Automatically enter edit mode for this field
-									if r.Field == "StudyTask" {
+									if r.Field == "DoTask" {
 										m.editMode = true
 										m.textArea.SetValue(r.Value)
 										m.textArea.Focus()
@@ -236,13 +235,125 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.editMode = false
 						m.addStepMode = false
 						m.textInput.Blur()
+				}
+				}
+				m.syncBuilderViewport()
+				return m, tea.Batch(cmds...)
+			}
+			
+			if m.addSubItemField != "" {
+					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
+						sugs := []string{"url", "search", "minion"}
+						if len(sugs) > 0 {
+							m.textInput.SetValue(sugs[0])
+							m.textInput.SetCursor(len(sugs[0]))
+						}
+						m.syncBuilderViewport()
+						return m, tea.Batch(cmds...)
+					}
+
+					var tiCmd tea.Cmd
+					m.textInput, tiCmd = m.textInput.Update(msg)
+					cmds = append(cmds, tiCmd)
+
+					if keyMsg, ok := msg.(tea.KeyMsg); ok {
+						if key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))) {
+							val := strings.ToLower(strings.TrimSpace(m.textInput.Value()))
+							if val != "url" && val != "search" && val != "minion" {
+								m.syncBuilderViewport()
+								return m, tea.Batch(cmds...)
+							}
+							step := m.builderData.Steps[m.addSubItemIdx]
+							if val == "url" {
+								step.AddArrayItem("FromURL")
+							} else if val == "search" {
+								step.AddArrayItem("FromSearch")
+							} else {
+								step.AddArrayItem("FromMinion")
+							}
+							fromStep := m.builderData.Steps[m.addSubItemIdx].(*FromStep)
+							m.refreshBuilderRows()
+
+							newTargetIdx := len(fromStep.Sources) - 1
+							for i, r := range m.builderRows {
+								if r.StepIndex == m.addSubItemIdx && r.TargetIndex == newTargetIdx && r.Type == rowStepField {
+									m.builderCursor = i
+									m.editMode = true
+									m.textInput.Reset()
+									m.textInput.Prompt = "> "
+									m.textInput.SetValue(r.Value)
+									m.textInput.Focus()
+									cmds = append(cmds, textinput.Blink)
+									break
+								}
+							}
+							m.addSubItemField = ""
+							m.addSubItemIdx = 0
+							m.syncBuilderViewport()
+							return m, tea.Batch(cmds...)
+						} else if keyMsg.Type == tea.KeyEsc {
+							m.editMode = false
+							m.addSubItemField = ""
+							m.addSubItemIdx = 0
+							m.textInput.Blur()
+				}
+				m.syncBuilderViewport()
+				return m, tea.Batch(cmds...)
+				}
+				}
+			if row.Type == rowStepHeader && row.Field != "" {
+				if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
+					if row.Field == "When" {
+						sugs, _ := getSuggestions(false, "When", "", m.textInput.Value())
+						if len(sugs) > 0 {
+							m.textInput.SetValue(sugs[0])
+							m.textInput.SetCursor(len(sugs[0]))
+						}
+						m.syncBuilderViewport()
+						return m, tea.Batch(cmds...)
+					}
+				}
+				if row.Field == "DoTask" {
+					var taCmd tea.Cmd
+					m.textArea, taCmd = m.textArea.Update(msg)
+					cmds = append(cmds, taCmd)
+					if keyMsg, ok := msg.(tea.KeyMsg); ok {
+						if keyMsg.Type == tea.KeyEsc {
+							val := m.textArea.Value()
+							step := m.builderData.Steps[row.StepIndex]
+							_ = step.UpdateField(row.Field, row.TargetIndex, val)
+							m.refreshBuilderRows()
+							m.editMode = false
+							m.textArea.Blur()
+							m.syncBuilderViewport()
+							return m, tea.Batch(cmds...)
+						}
+					}
+				} else {
+					var tiCmd tea.Cmd
+					m.textInput, tiCmd = m.textInput.Update(msg)
+					cmds = append(cmds, tiCmd)
+					if keyMsg, ok := msg.(tea.KeyMsg); ok {
+						if key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))) {
+							val := m.textInput.Value()
+							step := m.builderData.Steps[row.StepIndex]
+							_ = step.UpdateField(row.Field, row.TargetIndex, val)
+							m.refreshBuilderRows()
+							m.editMode = false
+							m.textInput.Blur()
+							m.syncBuilderViewport()
+							return m, tea.Batch(cmds...)
+						} else if keyMsg.Type == tea.KeyEsc {
+							m.editMode = false
+							m.textInput.Blur()
+						}
 					}
 				}
 				m.syncBuilderViewport()
 				return m, tea.Batch(cmds...)
 			}
 			
-				if row.Field == "StudyTask" || row.Field == "DeliverPayload" || row.Field == "ReportPayload" {
+				if row.Field == "DoTask" || row.Field == "DeliverPayload" || row.Field == "ReportPayload" {
 					var taCmd tea.Cmd
 					m.textArea, taCmd = m.textArea.Update(msg)
 					cmds = append(cmds, taCmd)
@@ -257,16 +368,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				} else {
-					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
-						contextType := ""
-						if row.Field == "DeliverTarget" || row.Field == "ReportTarget" {
-							if dStep, ok := m.builderData.Steps[row.StepIndex].(*DeliverStep); ok {
-								contextType = dStep.Targets[row.TargetIndex].Type
-							} else if rStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
-								contextType = rStep.Targets[row.TargetIndex].Type
+					contextType := func() string {
+						if (row.Field == "TellURL" || row.Field == "ReportURL") && row.StepIndex >= 0 && row.StepIndex < len(m.builderData.Steps) {
+							if tellStep, ok := m.builderData.Steps[row.StepIndex].(*TellStep); ok {
+								for k := range tellStep.Targets {
+									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+										return k
+									}
+								}
+							}
+							if reportStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
+								for k := range reportStep.Targets {
+									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+										return k
+									}
+								}
 							}
 						}
-						
+						return ""
+					}()
+
+					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
 						sugs, _ := getSuggestions(false, row.Field, contextType, m.textInput.Value())
 						if len(sugs) > 0 {
 							m.textInput.SetValue(sugs[0])
@@ -284,19 +406,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))) {
 							val := m.textInput.Value()
 							
-								// Auto-select top suggestion if the input has matches
-								contextType := ""
-								if row.Field == "DeliverTarget" || row.Field == "ReportTarget" {
-									if dStep, ok := m.builderData.Steps[row.StepIndex].(*DeliverStep); ok {
-										contextType = dStep.Targets[row.TargetIndex].Type
-									} else if rStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
-										contextType = rStep.Targets[row.TargetIndex].Type
-									}
-								}
-								
 								sugs, isStrict := getSuggestions(false, row.Field, contextType, val)
 								if len(sugs) > 0 && isStrict {
-									// Only auto-complete if the current value isn't an exact match to a suggestion
 									isExact := false
 									for _, s := range sugs {
 										if s == val {
@@ -413,7 +524,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addStepMode = true
 					m.editMode = true
 					m.textInput.Reset()
-					m.textInput.Prompt = "Step type (search/browse/study/etc): "
+					m.textInput.Prompt = "Block type (when/from/do/keep/ignore/tell/settings): "
 					m.textInput.Focus()
 					cmds = append(cmds, textinput.Blink)
 				case keyMsg.String() == "s":
@@ -427,45 +538,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addStepMode = true
 						m.editMode = true
 						m.textInput.Reset()
-						m.textInput.Prompt = "Step type (search/browse/study/etc): "
+						m.textInput.Prompt = "Block type (when/from/do/keep/ignore/tell/settings): "
 						m.textInput.Focus()
 						cmds = append(cmds, textinput.Blink)
 					} else if row.Type == rowEnabled {
 						m.builderData.Enabled = !m.builderData.Enabled
 						m.refreshBuilderRows()
-					} else if row.Field == "BrowseRender" {
-						step := m.builderData.Steps[row.StepIndex]
-						_ = step.UpdateField("BrowseRenderToggle", row.TargetIndex, "")
-						m.refreshBuilderRows()
+				} else if row.Field == "BrowseRender" {
+					step := m.builderData.Steps[row.StepIndex]
+					_ = step.UpdateField("BrowseRenderToggle", row.TargetIndex, "")
+					m.refreshBuilderRows()
+				} else if row.Field == "DeliverMarkdown" {
+					step := m.builderData.Steps[row.StepIndex]
+					_ = step.UpdateField("DeliverMarkdownToggle", row.TargetIndex, "")
+					m.refreshBuilderRows()
+				} else if row.Field == "ReportMarkdown" {
+					step := m.builderData.Steps[row.StepIndex]
+					_ = step.UpdateField("ReportMarkdownToggle", row.TargetIndex, "")
+					m.refreshBuilderRows()
 					} else if row.Type == rowRemoveSubItem || row.Type == rowDeleteStep {
 						m.confirmDelete = true
-					} else if row.Type == rowAddSubItem {
+				} else if row.Type == rowAddSubItem {
+					if row.Field == "From" {
+						m.addSubItemIdx = row.StepIndex
+						m.addSubItemField = "From"
+						m.editMode = true
+						m.textInput.Reset()
+						m.textInput.Prompt = "Source type (url/search): "
+						m.textInput.Focus()
+						cmds = append(cmds, textinput.Blink)
+					} else {
 						step := m.builderData.Steps[row.StepIndex]
 						step.AddArrayItem(row.Field)
 						m.refreshBuilderRows()
-						
-						// Auto-focus the newly added item
-						// The newly added item should be right above this AddSubItem row, or we can just search for the first field with TargetIndex = len - 1
+
 						m.editMode = false
 						m.textInput.Blur()
-						
-						// Find the new row to focus
-						for _, r := range m.builderRows {
-							if r.StepIndex == row.StepIndex && r.Type == rowStepField && strings.HasPrefix(r.Field, strings.Replace(row.Field, "Add", "", 1)) {
-								// We just want to jump to the last element of this field type
-							}
-						}
-						// simpler: jump cursor up 1 or 2 depending on if there's a Spacer
+
 						if m.builderCursor > 0 {
-							
-							// For Browse Add Target, the new elements added are:
-							// URL, Match, Render, Spacer
-							// If we hit "Add Target", we want to jump to the newly added URL field.
-							// The safest way is to search backwards for the highest TargetIndex of the given field type.
-							
+
 							targetIndexToFind := -1
 							var targetField string
-							
+
 							if row.Field == "BrowseAddTarget" {
 								targetField = "BrowseURL"
 							} else if row.Field == "SearchAddQuery" {
@@ -479,7 +593,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else if row.Field == "ReportAddTarget" {
 								targetField = "ReportURL"
 							}
-							
+
 							if targetField != "" {
 								for i := len(m.builderRows) - 1; i >= 0; i-- {
 									r := m.builderRows[i]
@@ -502,29 +616,50 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								cmds = append(cmds, textinput.Blink)
 							}
 						}
+					}
 					} else if row.Type == rowStepHeader {
-						// Hitting enter on a step header: auto-jump to its first field
-						for i, r := range m.builderRows {
-							if r.Type == rowStepField && r.StepIndex == row.StepIndex {
-								m.builderCursor = i
-								if r.Field == "StudyTask" {
-									m.editMode = true
-									m.textArea.SetValue(r.Value)
-									m.textArea.Focus()
-									cmds = append(cmds, textarea.Blink)
+						if row.Field != "" {
+							if row.Field == "DoTask" {
+								m.editMode = true
+								m.textArea.SetValue(row.Value)
+								m.textArea.Focus()
+								cmds = append(cmds, textarea.Blink)
+							} else {
+								m.editMode = true
+								m.textInput.Reset()
+								if row.Field == "KeepWords" || row.Field == "IgnoreWords" {
+									m.textInput.Prompt = "(comma separated)> "
 								} else {
-									m.editMode = true
-									m.textInput.Reset()
 									m.textInput.Prompt = "> "
-									m.textInput.SetValue(r.Value)
-									m.textInput.Focus()
-									cmds = append(cmds, textinput.Blink)
 								}
-								break
+								m.textInput.SetValue(row.Value)
+								m.textInput.Focus()
+								cmds = append(cmds, textinput.Blink)
+							}
+						} else {
+							// Hitting enter on a step header: auto-jump to its first field
+							for i, r := range m.builderRows {
+								if r.Type == rowStepField && r.StepIndex == row.StepIndex {
+									m.builderCursor = i
+									if r.Field == "DoTask" {
+										m.editMode = true
+										m.textArea.SetValue(r.Value)
+										m.textArea.Focus()
+										cmds = append(cmds, textarea.Blink)
+									} else {
+										m.editMode = true
+										m.textInput.Reset()
+										m.textInput.Prompt = "> "
+										m.textInput.SetValue(r.Value)
+										m.textInput.Focus()
+										cmds = append(cmds, textinput.Blink)
+									}
+									break
+								}
 							}
 						}
 					} else if row.Type == rowStepField || row.Type == rowName {
-						if row.Field == "StudyTask" || row.Field == "DeliverPayload" || row.Field == "ReportPayload" {
+						if row.Field == "DoTask" || row.Field == "DeliverPayload" || row.Field == "ReportPayload" {
 							m.editMode = true
 							m.textArea.SetValue(row.Value)
 							m.textArea.Focus()
@@ -544,7 +679,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-			
+
 			m.syncBuilderViewport()
 			return m, tea.Batch(cmds...)
 		}

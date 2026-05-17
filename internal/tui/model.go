@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -78,10 +79,12 @@ type model struct {
 	builderCursor int
 	builderOffset int
 	listOffset    int
-	editMode      bool
-	addStepMode   bool
-	confirmDelete bool
-	dirty         bool
+	editMode        bool
+	addStepMode     bool
+	addSubItemIdx   int
+	addSubItemField string
+	confirmDelete   bool
+	dirty           bool
 	textInput     textinput.Model
 	textArea      textarea.Model
 
@@ -201,8 +204,29 @@ func generateBuilderRows(data *builderData) []builderRow {
 	rows = append(rows, builderRow{Type: rowEnabled, StepIndex: -1, TargetIndex: -1, Field: "Enabled", Label: "enabled", Value: fmt.Sprintf("%t", data.Enabled)})
 	
 	for i, step := range data.Steps {
-		rows = append(rows, builderRow{Type: rowStepHeader, StepIndex: i, TargetIndex: -1, Label: string(step.Type())})
-		rows = append(rows, step.GetRows(i)...)
+		header := builderRow{Type: rowStepHeader, StepIndex: i, TargetIndex: -1, Label: string(step.Type())}
+
+		switch s := step.(type) {
+		case *WhenStep:
+			header.Value = s.When
+			header.Field = "When"
+		case *DoStep:
+			header.Value = s.Do
+			header.Field = "DoTask"
+		case *KeepStep:
+			header.Value = strings.Join(s.Keywords, ", ")
+			header.Field = "KeepWords"
+		case *IgnoreStep:
+			header.Value = strings.Join(s.Keywords, ", ")
+			header.Field = "IgnoreWords"
+		}
+
+		rows = append(rows, header)
+
+		if header.Field == "" {
+			rows = append(rows, step.GetRows(i)...)
+		}
+
 		rows = append(rows, builderRow{Type: rowDeleteStep, StepIndex: i, TargetIndex: -1, Label: "[ - Delete Step ]"})
 		rows = append(rows, builderRow{Type: rowAddStep, StepIndex: i, TargetIndex: -1, Label: "[ + Add Step ]"})
 	}

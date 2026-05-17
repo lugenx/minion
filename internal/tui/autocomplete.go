@@ -7,9 +7,9 @@ func getSuggestions(isAddStep bool, field, contextType, input string) (matches [
 	isStrict = false
 
 	if isAddStep {
-		options = []string{"schedule", "search", "browse", "filter", "scrape", "study", "deliver", "receive", "report"}
+		options = []string{"when", "from", "keep", "ignore", "do", "tell", "settings", "report"}
 		isStrict = true
-	} else if field == "Schedule" {
+	} else if field == "When" {
 		options = []string{
 			"every 5m",
 			"every 15m",
@@ -23,10 +23,10 @@ func getSuggestions(isAddStep bool, field, contextType, input string) (matches [
 			"0 9 * * * (Cron Format)",
 		}
 		isStrict = false
-	} else if field == "DeliverType" || field == "ReportType" {
+	} else if field == "TellType" || field == "ReportType" {
 		options = []string{"ntfy", "discord", "minion", "http_request"}
 		isStrict = true
-	} else if field == "DeliverTarget" || field == "ReportTarget" {
+	} else if field == "TellURL" || field == "ReportURL" {
 		if contextType == "ntfy" {
 			options = []string{"https://ntfy.sh/"}
 		} else if contextType == "discord" {
