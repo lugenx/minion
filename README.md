@@ -72,11 +72,11 @@ from:
 
   # 3. Crawl for sub-links matching a pattern
   - url: https://example.com/releases
-    match: /releases/
+    follow: /releases/
 
   # 4. Rendered scrape (headless browser for SPAs)
   - url: https://example.com/products
-    match: /p/
+    follow: /p/
     render: true
 
 keep:
@@ -147,7 +147,7 @@ Add `render: true` for JavaScript-heavy pages. This boots a headless Chromium br
 from:
   - url: https://example.com/news
   - url: https://example.com/products
-    match: /releases/
+    follow: /releases/
   - url: https://example.com/spa
     render: true
   - search: latest open source AI models

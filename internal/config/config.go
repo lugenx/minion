@@ -13,11 +13,37 @@ import (
 type Source struct {
 	URL    string `yaml:"url,omitempty"`
 	Render bool   `yaml:"render,omitempty"`
-	Match  string `yaml:"match,omitempty"`
+	Match  string `yaml:"follow,omitempty"`
 	Search string `yaml:"search,omitempty"`
 	Limit  int    `yaml:"limit,omitempty"`
 	Minion string `yaml:"minion,omitempty"`
 	SourceType string `yaml:"-"`
+}
+
+func (s *Source) UnmarshalYAML(value *yaml.Node) error {
+	var raw struct {
+		URL    string `yaml:"url"`
+		Render bool   `yaml:"render"`
+		Match  string `yaml:"match"`
+		Follow string `yaml:"follow"`
+		Search string `yaml:"search"`
+		Limit  int    `yaml:"limit"`
+		Minion string `yaml:"minion"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	s.URL = raw.URL
+	s.Render = raw.Render
+	s.Search = raw.Search
+	s.Limit = raw.Limit
+	s.Minion = raw.Minion
+	if raw.Follow != "" {
+		s.Match = raw.Follow
+	} else {
+		s.Match = raw.Match
+	}
+	return nil
 }
 
 type Settings struct {
@@ -129,7 +155,7 @@ from:
 
   # 3. Crawler (Finds matching links, then scrapes them)
   - url: https://calendar.example.com/events
-    match: /events
+    follow: /events
 
   # 4. Search Generator
   - search: programming meetups this week

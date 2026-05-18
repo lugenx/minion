@@ -59,7 +59,7 @@ func (s *FromStep) GetRows(stepIndex int) []builderRow {
 		default:
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromURL", Label: "url", Value: src.URL})
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromRender", Label: "  render", Value: fmt.Sprintf("%t", src.Render)})
-			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMatch", Label: "  match", Value: src.Match})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMatch", Label: "  follow", Value: src.Match})
 		}
 		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Source ]"})
 		rows = append(rows, builderRow{Type: rowSpacer, StepIndex: stepIndex, TargetIndex: -1, Field: "EditOnlySpacer"})
