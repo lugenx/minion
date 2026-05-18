@@ -177,223 +177,263 @@ func (s *DoStep) RemoveArrayItem(field string, index int) {}
 // TELL STEP
 // ---------------------------------------------------------
 type TellStep struct {
-	Targets map[string]interface{}
+	Targets []map[string]interface{}
 }
+
 func (s *TellStep) Type() StepType { return StepTell }
 func (s *TellStep) ApplyToConfig(m *config.MinionConfig) { m.Tell = s.Targets }
 func (s *TellStep) GetRows(stepIndex int) []builderRow {
 	var rows []builderRow
 
-	var url string
-	var ttype string
-	for k, v := range s.Targets {
-		if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
-			ttype = k
-			url = fmt.Sprintf("%v", v)
-			break
+	for i, target := range s.Targets {
+		var url string
+		var ttype string
+		for k, v := range target {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+				ttype = k
+				url = fmt.Sprintf("%v", v)
+				break
+			}
 		}
+
+		if i > 0 {
+			rows = append(rows, builderRow{Type: rowSpacer, StepIndex: stepIndex, TargetIndex: -1, Field: "EditOnlySpacer"})
+		}
+
+		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "TellType", Label: "type", Value: ttype})
+		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "TellURL", Label: "url", Value: url})
+
+		switch ttype {
+		case "ntfy":
+			md := false
+			if v, ok := target["markdown"]; ok {
+				md, _ = v.(bool)
+			}
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverMarkdown", Label: "markdown", Value: fmt.Sprintf("%t", md)})
+
+			username, password := "", ""
+			if ba, ok := target["basic_auth"].(map[string]interface{}); ok {
+				if u, ok := ba["username"].(string); ok { username = u }
+				if p, ok := ba["password"].(string); ok { password = p }
+			}
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverUsername", Label: "auth user", Value: username})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverPassword", Label: "auth pass", Value: password})
+
+		case "http_request":
+			method := ""
+			payload := ""
+			if v, ok := target["method"].(string); ok { method = v }
+			if v, ok := target["payload_template"].(string); ok { payload = v }
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverMethod", Label: "method", Value: method})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverPayload", Label: "payload", Value: payload})
+
+			username, password := "", ""
+			if ba, ok := target["basic_auth"].(map[string]interface{}); ok {
+				if u, ok := ba["username"].(string); ok { username = u }
+				if p, ok := ba["password"].(string); ok { password = p }
+			}
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverUsername", Label: "auth user", Value: username})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverPassword", Label: "auth pass", Value: password})
+		}
+
+		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Target ]"})
 	}
 
-	rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "TellType", Label: "type", Value: ttype})
-	rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "TellURL", Label: "url", Value: url})
-
-	switch ttype {
-	case "ntfy":
-		md := false
-		if v, ok := s.Targets["markdown"]; ok {
-			md, _ = v.(bool)
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverMarkdown", Label: "markdown", Value: fmt.Sprintf("%t", md)})
-
-		username, password := "", ""
-		if ba, ok := s.Targets["basic_auth"].(map[string]interface{}); ok {
-			if u, ok := ba["username"].(string); ok { username = u }
-			if p, ok := ba["password"].(string); ok { password = p }
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverUsername", Label: "auth user", Value: username})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverPassword", Label: "auth pass", Value: password})
-
-	case "http_request":
-		method := ""
-		payload := ""
-		if v, ok := s.Targets["method"].(string); ok { method = v }
-		if v, ok := s.Targets["payload_template"].(string); ok { payload = v }
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverMethod", Label: "method", Value: method})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverPayload", Label: "payload", Value: payload})
-
-		username, password := "", ""
-		if ba, ok := s.Targets["basic_auth"].(map[string]interface{}); ok {
-			if u, ok := ba["username"].(string); ok { username = u }
-			if p, ok := ba["password"].(string); ok { password = p }
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverUsername", Label: "auth user", Value: username})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "DeliverPassword", Label: "auth pass", Value: password})
-	}
-
+	rows = append(rows, builderRow{Type: rowAddSubItem, StepIndex: stepIndex, TargetIndex: -1, Field: "Tell", Label: "[ + Add Target ]"})
 	return rows
 }
 func (s *TellStep) UpdateField(field string, targetIndex int, value string) error {
-	if s.Targets == nil { s.Targets = make(map[string]interface{}) }
+	if targetIndex < 0 || targetIndex >= len(s.Targets) {
+		return nil
+	}
+	target := s.Targets[targetIndex]
 	switch field {
 	case "TellType":
-		oldUrl := ""
-		for k, v := range s.Targets {
+		for k := range target {
 			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
-				oldUrl = fmt.Sprintf("%v", v)
-				delete(s.Targets, k)
+				delete(target, k)
 			}
 		}
-		delete(s.Targets, "markdown")
-		delete(s.Targets, "method")
-		delete(s.Targets, "payload_template")
-		if value != "" { s.Targets[value] = oldUrl }
+		delete(target, "markdown")
+		delete(target, "method")
+		delete(target, "payload_template")
+		if value != "" {
+			target[value] = ""
+		}
 	case "TellURL":
 		ttype := "ntfy"
-		for k := range s.Targets {
+		for k := range target {
 			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
 				ttype = k
 				break
 			}
 		}
-		s.Targets[ttype] = value
+		target[ttype] = value
 	case "DeliverMarkdown":
-		s.Targets["markdown"] = value == "true"
+		target["markdown"] = value == "true"
 	case "DeliverMarkdownToggle":
-		md, _ := s.Targets["markdown"].(bool)
-		s.Targets["markdown"] = !md
+		md, _ := target["markdown"].(bool)
+		target["markdown"] = !md
 	case "DeliverUsername":
-		ba, ok := s.Targets["basic_auth"].(map[string]interface{})
+		ba, ok := target["basic_auth"].(map[string]interface{})
 		if !ok {
 			ba = make(map[string]interface{})
-			s.Targets["basic_auth"] = ba
+			target["basic_auth"] = ba
 		}
 		ba["username"] = value
 	case "DeliverPassword":
-		ba, ok := s.Targets["basic_auth"].(map[string]interface{})
+		ba, ok := target["basic_auth"].(map[string]interface{})
 		if !ok {
 			ba = make(map[string]interface{})
-			s.Targets["basic_auth"] = ba
+			target["basic_auth"] = ba
 		}
 		ba["password"] = value
 	case "DeliverMethod":
-		s.Targets["method"] = value
+		target["method"] = value
 	case "DeliverPayload":
-		s.Targets["payload_template"] = value
+		target["payload_template"] = value
 	}
 	return nil
 }
-func (s *TellStep) AddArrayItem(field string) {}
-func (s *TellStep) RemoveArrayItem(field string, index int) {}
+func (s *TellStep) AddArrayItem(field string) {
+	s.Targets = append(s.Targets, make(map[string]interface{}))
+}
+func (s *TellStep) RemoveArrayItem(field string, index int) {
+	if index >= 0 && index < len(s.Targets) {
+		s.Targets = append(s.Targets[:index], s.Targets[index+1:]...)
+	}
+}
 
 // ---------------------------------------------------------
 // REPORT STEP
 // ---------------------------------------------------------
 type ReportStep struct {
-	Targets map[string]interface{}
+	Targets []map[string]interface{}
 }
+
 func (s *ReportStep) Type() StepType { return StepReport }
 func (s *ReportStep) ApplyToConfig(m *config.MinionConfig) { m.Report = s.Targets }
 func (s *ReportStep) GetRows(stepIndex int) []builderRow {
 	var rows []builderRow
-	var url string
-	var ttype string
-	for k, v := range s.Targets {
-		if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
-			ttype = k
-			url = fmt.Sprintf("%v", v)
-			break
+
+	for i, target := range s.Targets {
+		var url string
+		var ttype string
+		for k, v := range target {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+				ttype = k
+				url = fmt.Sprintf("%v", v)
+				break
+			}
 		}
+
+		if i > 0 {
+			rows = append(rows, builderRow{Type: rowSpacer, StepIndex: stepIndex, TargetIndex: -1, Field: "EditOnlySpacer"})
+		}
+
+		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportType", Label: "type", Value: ttype})
+		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportURL", Label: "url", Value: url})
+
+		switch ttype {
+		case "ntfy":
+			md := false
+			if v, ok := target["markdown"]; ok {
+				md, _ = v.(bool)
+			}
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportMarkdown", Label: "markdown", Value: fmt.Sprintf("%t", md)})
+
+			username, password := "", ""
+			if ba, ok := target["basic_auth"].(map[string]interface{}); ok {
+				if u, ok := ba["username"].(string); ok { username = u }
+				if p, ok := ba["password"].(string); ok { password = p }
+			}
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportUsername", Label: "auth user", Value: username})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportPassword", Label: "auth pass", Value: password})
+
+		case "http_request":
+			method := ""
+			payload := ""
+			if v, ok := target["method"].(string); ok { method = v }
+			if v, ok := target["payload_template"].(string); ok { payload = v }
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportMethod", Label: "method", Value: method})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportPayload", Label: "payload", Value: payload})
+
+			username, password := "", ""
+			if ba, ok := target["basic_auth"].(map[string]interface{}); ok {
+				if u, ok := ba["username"].(string); ok { username = u }
+				if p, ok := ba["password"].(string); ok { password = p }
+			}
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportUsername", Label: "auth user", Value: username})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportPassword", Label: "auth pass", Value: password})
+		}
+
+		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Target ]"})
 	}
-	rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportType", Label: "type", Value: ttype})
-	rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportURL", Label: "url", Value: url})
 
-	switch ttype {
-	case "ntfy":
-		md := false
-		if v, ok := s.Targets["markdown"]; ok {
-			md, _ = v.(bool)
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportMarkdown", Label: "markdown", Value: fmt.Sprintf("%t", md)})
-
-		username, password := "", ""
-		if ba, ok := s.Targets["basic_auth"].(map[string]interface{}); ok {
-			if u, ok := ba["username"].(string); ok { username = u }
-			if p, ok := ba["password"].(string); ok { password = p }
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportUsername", Label: "auth user", Value: username})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportPassword", Label: "auth pass", Value: password})
-
-	case "http_request":
-		method := ""
-		payload := ""
-		if v, ok := s.Targets["method"].(string); ok { method = v }
-		if v, ok := s.Targets["payload_template"].(string); ok { payload = v }
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportMethod", Label: "method", Value: method})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportPayload", Label: "payload", Value: payload})
-
-		username, password := "", ""
-		if ba, ok := s.Targets["basic_auth"].(map[string]interface{}); ok {
-			if u, ok := ba["username"].(string); ok { username = u }
-			if p, ok := ba["password"].(string); ok { password = p }
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportUsername", Label: "auth user", Value: username})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "ReportPassword", Label: "auth pass", Value: password})
-	}
-
+	rows = append(rows, builderRow{Type: rowAddSubItem, StepIndex: stepIndex, TargetIndex: -1, Field: "Report", Label: "[ + Add Target ]"})
 	return rows
 }
 func (s *ReportStep) UpdateField(field string, targetIndex int, value string) error {
-	if s.Targets == nil { s.Targets = make(map[string]interface{}) }
+	if targetIndex < 0 || targetIndex >= len(s.Targets) {
+		return nil
+	}
+	target := s.Targets[targetIndex]
 	switch field {
 	case "ReportType":
-		oldUrl := ""
-		for k, v := range s.Targets {
+		for k := range target {
 			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
-				oldUrl = fmt.Sprintf("%v", v)
-				delete(s.Targets, k)
+				delete(target, k)
 			}
 		}
-		delete(s.Targets, "markdown")
-		delete(s.Targets, "method")
-		delete(s.Targets, "payload_template")
-		if value != "" { s.Targets[value] = oldUrl }
+		delete(target, "markdown")
+		delete(target, "method")
+		delete(target, "payload_template")
+		if value != "" {
+			target[value] = ""
+		}
 	case "ReportURL":
 		ttype := "ntfy"
-		for k := range s.Targets {
+		for k := range target {
 			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
 				ttype = k
 				break
 			}
 		}
-		s.Targets[ttype] = value
+		target[ttype] = value
 	case "ReportMarkdown":
-		s.Targets["markdown"] = value == "true"
+		target["markdown"] = value == "true"
 	case "ReportMarkdownToggle":
-		md, _ := s.Targets["markdown"].(bool)
-		s.Targets["markdown"] = !md
+		md, _ := target["markdown"].(bool)
+		target["markdown"] = !md
 	case "ReportUsername":
-		ba, ok := s.Targets["basic_auth"].(map[string]interface{})
+		ba, ok := target["basic_auth"].(map[string]interface{})
 		if !ok {
 			ba = make(map[string]interface{})
-			s.Targets["basic_auth"] = ba
+			target["basic_auth"] = ba
 		}
 		ba["username"] = value
 	case "ReportPassword":
-		ba, ok := s.Targets["basic_auth"].(map[string]interface{})
+		ba, ok := target["basic_auth"].(map[string]interface{})
 		if !ok {
 			ba = make(map[string]interface{})
-			s.Targets["basic_auth"] = ba
+			target["basic_auth"] = ba
 		}
 		ba["password"] = value
 	case "ReportMethod":
-		s.Targets["method"] = value
+		target["method"] = value
 	case "ReportPayload":
-		s.Targets["payload_template"] = value
+		target["payload_template"] = value
 	}
 	return nil
 }
-func (s *ReportStep) AddArrayItem(field string) {}
-func (s *ReportStep) RemoveArrayItem(field string, index int) {}
+func (s *ReportStep) AddArrayItem(field string) {
+	s.Targets = append(s.Targets, make(map[string]interface{}))
+}
+func (s *ReportStep) RemoveArrayItem(field string, index int) {
+	if index >= 0 && index < len(s.Targets) {
+		s.Targets = append(s.Targets[:index], s.Targets[index+1:]...)
+	}
+}
 
 // ---------------------------------------------------------
 // SETTINGS STEP

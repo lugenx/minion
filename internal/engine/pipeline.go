@@ -270,7 +270,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		}
 
 		step("REPORT", "Delivering mission report", false)
-		deliverTargets(ctx, minion, runCtx, []types.Item{reportItem}, []map[string]interface{}{minion.Report}, false)
+		deliverTargets(ctx, minion, runCtx, []types.Item{reportItem}, minion.Report, false)
 	}
 
 	step("DONE", fmt.Sprintf("Finished %s", minion.Name), false)
@@ -526,7 +526,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 	// Step 4: Deliver
 	if len(minion.Tell) > 0 {
-		deliverTargets(ctx, minion, runCtx, matchArray, []map[string]interface{}{minion.Tell}, true)
+		deliverTargets(ctx, minion, runCtx, matchArray, minion.Tell, true)
 	}
 
 	return nil

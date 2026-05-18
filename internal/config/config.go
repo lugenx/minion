@@ -53,18 +53,76 @@ type Settings struct {
 
 // MinionConfig represents a task schema.
 type MinionConfig struct {
-	Name     string                 `yaml:"name"`
-	Enabled  *bool                  `yaml:"enabled"` // Legacy support
-	When     string                 `yaml:"when,omitempty"`
-	From     []Source               `yaml:"from"`
-	Keep     []string               `yaml:"keep,omitempty"`
-	Ignore   []string               `yaml:"ignore,omitempty"`
-	Do       string                 `yaml:"do"`
-	Tell     map[string]interface{} `yaml:"tell,omitempty"`
-	Report   map[string]interface{} `yaml:"report,omitempty"`
-	Settings Settings               `yaml:"settings,omitempty"`
+	Name     string                   `yaml:"name"`
+	Enabled  *bool                    `yaml:"enabled"` // Legacy support
+	When     string                   `yaml:"when,omitempty"`
+	From     []Source                 `yaml:"from"`
+	Keep     []string                 `yaml:"keep,omitempty"`
+	Ignore   []string                 `yaml:"ignore,omitempty"`
+	Do       string                   `yaml:"do"`
+	Tell     []map[string]interface{} `yaml:"tell,omitempty"`
+	Report   []map[string]interface{} `yaml:"report,omitempty"`
+	Settings Settings                 `yaml:"settings,omitempty"`
 
 	Filename string `yaml:"-"`
+}
+
+// UnmarshalYAML supports both the old flat map format (tell: {ntfy: ...})
+// and the new array format (tell: [{ntfy: ...}, {discord: ...}]).
+func (m *MinionConfig) UnmarshalYAML(value *yaml.Node) error {
+	var raw struct {
+		Name     string      `yaml:"name"`
+		Enabled  *bool       `yaml:"enabled"`
+		When     string      `yaml:"when"`
+		From     []Source    `yaml:"from"`
+		Keep     []string    `yaml:"keep"`
+		Ignore   []string    `yaml:"ignore"`
+		Do       string      `yaml:"do"`
+		Tell     interface{} `yaml:"tell"`
+		Report   interface{} `yaml:"report"`
+		Settings Settings    `yaml:"settings"`
+	}
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	m.Name = raw.Name
+	m.Enabled = raw.Enabled
+	m.When = raw.When
+	m.From = raw.From
+	m.Keep = raw.Keep
+	m.Ignore = raw.Ignore
+	m.Do = raw.Do
+	m.Settings = raw.Settings
+
+	if raw.Tell != nil {
+		switch v := raw.Tell.(type) {
+		case map[string]interface{}:
+			if len(v) > 0 {
+				m.Tell = []map[string]interface{}{v}
+			}
+		case []interface{}:
+			for _, item := range v {
+				if m2, ok := item.(map[string]interface{}); ok {
+					m.Tell = append(m.Tell, m2)
+				}
+			}
+		}
+	}
+	if raw.Report != nil {
+		switch v := raw.Report.(type) {
+		case map[string]interface{}:
+			if len(v) > 0 {
+				m.Report = []map[string]interface{}{v}
+			}
+		case []interface{}:
+			for _, item := range v {
+				if m2, ok := item.(map[string]interface{}); ok {
+					m.Report = append(m.Report, m2)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 var (
@@ -175,11 +233,11 @@ ignore:
 do: Summarize each event with date, location, and topic.
 
 tell:
-  ntfy: https://ntfy.sh/your-topic-here
-  markdown: true
+  - ntfy: https://ntfy.sh/your-topic-here
+    markdown: true
 
 report:
-  # ntfy: https://ntfy.sh/your-topic-here
+  # - ntfy: https://ntfy.sh/your-topic-here
 
 settings:
   timeout: 15

@@ -368,25 +368,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				} else {
-					contextType := func() string {
-						if (row.Field == "TellURL" || row.Field == "ReportURL") && row.StepIndex >= 0 && row.StepIndex < len(m.builderData.Steps) {
-							if tellStep, ok := m.builderData.Steps[row.StepIndex].(*TellStep); ok {
-								for k := range tellStep.Targets {
-									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
-										return k
-									}
-								}
-							}
-							if reportStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
-								for k := range reportStep.Targets {
+				contextType := func() string {
+					if (row.Field == "TellURL" || row.Field == "ReportURL") && row.StepIndex >= 0 && row.StepIndex < len(m.builderData.Steps) && row.TargetIndex >= 0 {
+						if tellStep, ok := m.builderData.Steps[row.StepIndex].(*TellStep); ok {
+							if row.TargetIndex < len(tellStep.Targets) {
+								for k := range tellStep.Targets[row.TargetIndex] {
 									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
 										return k
 									}
 								}
 							}
 						}
-						return ""
-					}()
+						if reportStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
+							if row.TargetIndex < len(reportStep.Targets) {
+								for k := range reportStep.Targets[row.TargetIndex] {
+									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+										return k
+									}
+								}
+							}
+						}
+					}
+					return ""
+				}()
 
 					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
 						sugs, _ := getSuggestions(false, row.Field, contextType, m.textInput.Value())
@@ -588,9 +592,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								targetField = "FilterKeep"
 							} else if row.Field == "FilterAddDrop" {
 								targetField = "FilterDrop"
-							} else if row.Field == "DeliverAddTarget" {
-								targetField = "DeliverURL"
-							} else if row.Field == "ReportAddTarget" {
+							} else if row.Field == "Tell" {
+								targetField = "TellURL"
+							} else if row.Field == "Report" {
 								targetField = "ReportURL"
 							}
 

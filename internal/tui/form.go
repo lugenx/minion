@@ -51,9 +51,9 @@ func buildForm(m *config.MinionConfig) (*huh.Form, *formData) {
 		}
 
 		if len(m.Tell) > 0 {
-			if ntfy, ok := m.Tell["ntfy"]; ok {
+			if ntfy, ok := m.Tell[0]["ntfy"]; ok {
 				data.WebhookURL = fmt.Sprintf("%v", ntfy)
-			} else if discord, ok := m.Tell["discord"]; ok {
+			} else if discord, ok := m.Tell[0]["discord"]; ok {
 				data.WebhookURL = fmt.Sprintf("%v", discord)
 			}
 		}
@@ -122,15 +122,17 @@ func saveForm(data *formData) error {
 		sources = append(sources, config.Source{Search: strings.TrimSpace(data.Search), Limit: 3})
 	}
 
-	tellMap := make(map[string]interface{})
+	var tellTargets []map[string]interface{}
 	if strings.TrimSpace(data.WebhookURL) != "" {
+		target := make(map[string]interface{})
 		if strings.Contains(data.WebhookURL, "ntfy.sh") {
-			tellMap["ntfy"] = strings.TrimSpace(data.WebhookURL)
+			target["ntfy"] = strings.TrimSpace(data.WebhookURL)
 		} else if strings.Contains(data.WebhookURL, "discord.com") {
-			tellMap["discord"] = strings.TrimSpace(data.WebhookURL)
+			target["discord"] = strings.TrimSpace(data.WebhookURL)
 		} else {
-			tellMap["http_request"] = strings.TrimSpace(data.WebhookURL)
+			target["http_request"] = strings.TrimSpace(data.WebhookURL)
 		}
+		tellTargets = append(tellTargets, target)
 	}
 
 	mConfig := config.MinionConfig{
@@ -139,7 +141,7 @@ func saveForm(data *formData) error {
 		When:     strings.TrimSpace(data.Schedule),
 		From:     sources,
 		Do:       strings.TrimSpace(data.Task),
-		Tell:     tellMap,
+		Tell:     tellTargets,
 		Settings: config.Settings{Timeout: 15, Delay: 2},
 	}
 
