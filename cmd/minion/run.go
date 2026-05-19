@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -348,7 +349,8 @@ func executeMinion(ctx context.Context, dbStore *store.Store, llmEval *llm.Evalu
 	displayFile = strings.TrimSuffix(displayFile, ".yml")
 	minionLogPath := filepath.Join(config.LogsDir, displayFile+".log")
 
-	minionLogFile, err := os.OpenFile(minionLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	os.Remove(minionLogPath)
+	minionLogFile, err := os.OpenFile(minionLogPath, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		logMessage("ERROR", m.Name, fmt.Sprintf("Failed to open log file: %v", err))
 		return
@@ -359,11 +361,9 @@ func executeMinion(ctx context.Context, dbStore *store.Store, llmEval *llm.Evalu
 	fileRenderer.SetColorProfile(termenv.TrueColor)
 	
 	stepStyle := fileRenderer.NewStyle().Bold(true).Width(15).Align(lipgloss.Right).MarginRight(2)
-	okColor := lipgloss.Color("42")
-	warnColor := lipgloss.Color("214")
-	errColor := lipgloss.Color("9")
-	infoColor := lipgloss.Color("39")
 	neutralColor := lipgloss.Color("240")
+	urlRe := regexp.MustCompile(`https?://[^\s` + "`" + `]+`)
+	btRe := regexp.MustCompile("`([^`]*)`")
 
 	// Set a reasonable absolute max timeout for any minion execution
 	runCtxTimeout, cancel := context.WithTimeout(ctx, 2*time.Hour)
@@ -376,28 +376,69 @@ func executeMinion(ctx context.Context, dbStore *store.Store, llmEval *llm.Evalu
 		Store: dbStore,
 		LLM:   llmEval,
 		OnStep: func(step, details string, isError bool) {
-			color := neutralColor 
+			if step == "" {
+				fmt.Fprintln(minionLogFile)
+				return
+			}
+			color := neutralColor
 			switch step {
-			case "DONE", "MATCH", "WEBHOOK", "ITEM":
-				color = okColor 
-			case "CACHED", "DEDUPE", "FILTERED", "SKIPPED":
-				color = warnColor 
-			case "FIREWALL", "DISCARDED", "NO MATCH":
-				color = infoColor 
-			case "ERROR", "SEARCH ERROR", "BROWSE ERROR", "SCRAPE ERROR", "STUDY ERROR", "STORE ERROR", "WEBHOOK ERROR":
-				color = errColor 
+			case "start", "from":
+				color = lipgloss.Color("39")
+			case "do":
+				color = lipgloss.Color("141")
+			case "done", "result", "tell", "report", "unchanged":
+				color = lipgloss.Color("42")
+			case "skip", "keep", "ignore":
+				color = lipgloss.Color("214")
+			case "discard", "discarded":
+				color = lipgloss.Color("75")
+			}
+
+			if isError {
+				color = lipgloss.Color("9")
 			}
 
 			s := stepStyle.Foreground(color).Render("[" + step + "]")
-			
-			detailStyle := fileRenderer.NewStyle()
+
+			dataStyle := fileRenderer.NewStyle().Foreground(lipgloss.Color("67"))
+			textStyle := fileRenderer.NewStyle().Foreground(lipgloss.Color("252"))
+			dimStyle := fileRenderer.NewStyle().Foreground(lipgloss.Color("243"))
+
+			var renderedDetail string
 			if isError {
-				detailStyle = detailStyle.Foreground(errColor)
-			} else if color == neutralColor {
-				detailStyle = detailStyle.Foreground(lipgloss.Color("245"))
+				renderedDetail = fileRenderer.NewStyle().Foreground(lipgloss.Color("9")).Render(details)
+			} else if step == "tell" && !strings.HasPrefix(details, "→ minion") && !strings.Contains(details, ":") {
+				parts := strings.SplitN(details, "→ ", 2)
+				if len(parts) == 2 {
+					renderedDetail = dimStyle.Render(parts[0]+"→ ") + textStyle.Render(parts[1])
+				}
 			}
 
-			fmt.Fprintf(minionLogFile, "%s %s\n", s, detailStyle.Render(details))
+			if renderedDetail == "" {
+				var buf strings.Builder
+				lastEnd := 0
+				for _, loc := range btRe.FindAllStringIndex(details, -1) {
+					before := details[lastEnd:loc[0]]
+					for _, urlLoc := range urlRe.FindAllStringIndex(before, -1) {
+						buf.WriteString(textStyle.Render(before[:urlLoc[0]]))
+						buf.WriteString(dataStyle.Render(before[urlLoc[0]:urlLoc[1]]))
+						before = before[urlLoc[1]:]
+					}
+					buf.WriteString(textStyle.Render(before))
+					buf.WriteString(dataStyle.Render(details[loc[0]+1 : loc[1]-1]))
+					lastEnd = loc[1]
+				}
+				remaining := details[lastEnd:]
+				for _, urlLoc := range urlRe.FindAllStringIndex(remaining, -1) {
+					buf.WriteString(textStyle.Render(remaining[:urlLoc[0]]))
+					buf.WriteString(dataStyle.Render(remaining[urlLoc[0]:urlLoc[1]]))
+					remaining = remaining[urlLoc[1]:]
+				}
+				buf.WriteString(textStyle.Render(remaining))
+				renderedDetail = buf.String()
+			}
+
+			fmt.Fprintf(minionLogFile, "%s %s\n", s, renderedDetail)
 
 			if isError {
 				logMessage("ERROR", m.Name, fmt.Sprintf("%s: %s", step, details))
@@ -408,15 +449,15 @@ func executeMinion(ctx context.Context, dbStore *store.Store, llmEval *llm.Evalu
 	if err := engine.RunMission(runCtxTimeout, m, runCtx); err != nil {
 		logMessage("ERROR", m.Name, fmt.Sprintf("Failed: %v", err))
 	} else {
-		statsMsg := fmt.Sprintf("Finished in %s (Scraped: %d, Cached: %d, Studied: %d, Discarded: %d, Skipped: %d, Found: %d, Delivered: %d, Errors: %d)",
+		statsMsg := fmt.Sprintf("Finished in %s (Fetched: %d, Unchanged: %d, Analyzed: %d, Discarded: %d, Skipped: %d, Results: %d, Sent: %d, Errors: %d)",
 			runCtx.Stats.Duration().Round(time.Millisecond*100),
-			runCtx.Stats.PagesScraped,
-			runCtx.Stats.PagesCached,
-			runCtx.Stats.PagesStudied,
-			runCtx.Stats.PagesDiscarded,
-			runCtx.Stats.PagesSkipped,
-			runCtx.Stats.ItemsFound,
-			runCtx.Stats.ItemsDelivered,
+			runCtx.Stats.Fetched,
+			runCtx.Stats.Unchanged,
+			runCtx.Stats.Analyzed,
+			runCtx.Stats.Discarded,
+			runCtx.Stats.Skipped,
+			runCtx.Stats.Results,
+			runCtx.Stats.Sent,
 			runCtx.Stats.Errors,
 		)
 		logMessage("INFO", m.Name, statsMsg)

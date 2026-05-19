@@ -25,19 +25,17 @@ import (
 )
 
 type Stats struct {
-	StartTime      time.Time
-	EndTime        time.Time
-	SearchLinks    int
-	BrowseLinks    int
-	PagesScraped   int
-	PagesCached    int
-	PagesStudied   int
-	PagesDiscarded int
-	PagesSkipped   int
-	ItemsFound     int
-	ItemsDelivered int
-	Errors         int
-	TotalCost      float64
+	StartTime  time.Time
+	EndTime    time.Time
+	Fetched    int
+	Unchanged  int
+	Analyzed   int
+	Discarded  int
+	Skipped    int
+	Results    int
+	Sent       int
+	Errors     int
+	TotalCost  float64
 }
 
 func (s *Stats) Duration() time.Duration {
@@ -59,25 +57,22 @@ func (s *Stats) GenerateReport(minionName string) string {
 			"End:    %s\n"+
 			"Time:   %s\n"+
 			"Errors: %d\n\n"+
-			"- Search Results: %d links\n"+
-			"- Browse Results: %d links\n"+
-			"- Scraped:        %d pages\n"+
-			"    - Cached:     %d pages\n"+
-			"- Studied:        %d pages\n"+
-			"    - Discarded:  %d pages\n"+
-			"    - Skipped:    %d pages\n"+
-			"    - Found:      %d items\n"+
-			"- Delivered:      %d items\n\n"+
+			"  Fetched:      %d\n"+
+			"  Unchanged:    %d\n"+
+			"  Analyzed:     %d\n"+
+			"  Discarded:    %d\n"+
+			"  Skipped:      %d\n\n"+
+			"  Results:      %d\n"+
+			"  Sent:         %d\n\n"+
 			"Cost:   %s",
 		minionName,
 		s.StartTime.Format("2006-01-02 15:04:05"),
 		s.EndTime.Format("15:04:05"),
 		s.Duration().Round(time.Millisecond*100),
 		s.Errors,
-		s.SearchLinks, s.BrowseLinks,
-		s.PagesScraped, s.PagesCached,
-		s.PagesStudied, s.PagesDiscarded, s.PagesSkipped,
-		s.ItemsFound, s.ItemsDelivered,
+		s.Fetched, s.Unchanged,
+		s.Analyzed, s.Discarded, s.Skipped,
+		s.Results, s.Sent,
 		costStr,
 	)
 }
@@ -135,7 +130,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		}
 	}
 
-	step("MISSION", fmt.Sprintf("Starting %s", minion.Name), false)
+	step("start", minion.Name, false)
 
 	if runCtx.Stats == nil {
 		runCtx.Stats = &Stats{StartTime: time.Now()}
@@ -173,14 +168,14 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			if len(startingURLs) > 0 {
 				time.Sleep(time.Duration(rand.Intn(3)+1) * time.Second)
 			}
-			step("SEARCH", fmt.Sprintf("Query: %s", source.Search), false)
+			step("from", fmt.Sprintf("search `%s`", source.Search), false)
 			urls, err := scraper.SearchDuckDuckGo(ctx, source.Search, limit, 15)
 			if err != nil {
 				runCtx.Stats.Errors++
-				step("SEARCH ERROR", err.Error(), true)
+				step("from", err.Error(), true)
 				continue
 			}
-			runCtx.Stats.SearchLinks += len(urls)
+			runCtx.Stats.Fetched += len(urls)
 			startingURLs = append(startingURLs, urls...)
 			continue
 		}
@@ -193,17 +188,17 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 				if source.Render {
 					renderURLs[source.URL] = true
 				}
-				runCtx.Stats.BrowseLinks++
-				step("BROWSE", fmt.Sprintf("Added %s", source.URL), false)
+				runCtx.Stats.Fetched++
+				step("from", fmt.Sprintf("url `%s`", source.URL), false)
 			} else {
-				step("BROWSE", fmt.Sprintf("Scanning %s for regex '%s'", source.URL, source.Match), false)
+				step("from", fmt.Sprintf("url `%s`", source.URL), false)
 				var links []string
 				var err error
 				if source.Render {
 					browser, bErr := runCtx.GetBrowser(globalTimeout)
 					if bErr != nil {
 						runCtx.Stats.Errors++
-						step("BROWSE ERROR", bErr.Error(), true)
+						step("from", bErr.Error(), true)
 						continue
 					}
 					links, err = scraper.ExtractLinksRendered(ctx, browser, source.URL, source.Match, globalTimeout)
@@ -212,10 +207,11 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 				}
 				if err != nil {
 					runCtx.Stats.Errors++
-					step("BROWSE ERROR", err.Error(), true)
+					step("from", err.Error(), true)
 					continue
 				}
-				runCtx.Stats.BrowseLinks += len(links)
+				step("from", fmt.Sprintf("follow `%s` → %d urls", source.Match, len(links)), false)
+				runCtx.Stats.Fetched += len(links)
 				startingURLs = append(startingURLs, links...)
 				if source.Render {
 					for _, link := range links {
@@ -246,6 +242,8 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			return ctx.Err()
 		}
 
+		step("", "", false)
+
 		item := &types.Item{
 			ID:        generateID(),
 			URL:       u,
@@ -255,7 +253,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		err := ProcessItem(ctx, minion, item, runCtx, "cron")
 		if err != nil {
 			runCtx.Stats.Errors++
-			step("ERROR", fmt.Sprintf("Failed processing %s: %v", u, err), true)
+			step("error", fmt.Sprintf("→ `%s`: %v", u, err), true)
 		}
 	}
 
@@ -269,11 +267,11 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			Summary: reportText,
 		}
 
-		step("REPORT", "Delivering mission report", false)
+		step("report", "delivered", false)
 		deliverTargets(ctx, minion, runCtx, []types.Item{reportItem}, minion.Report, false)
 	}
 
-	step("DONE", fmt.Sprintf("Finished %s", minion.Name), false)
+	step("done", minion.Name, false)
 	return nil
 }
 
@@ -298,10 +296,10 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			}
 		}
 		if !authorized {
-			step("REJECTED", fmt.Sprintf("No 'from.minion' source matches sender '%s'", parentName), true)
+			step("from", fmt.Sprintf("rejected `%s`", parentName), true)
 			return nil
 		}
-		step("RECEIVE", fmt.Sprintf("Verified connection from '%s'", parentName), false)
+		step("from", fmt.Sprintf("from `%s`", parentName), false)
 	}
 
 	// Step 1: Filter
@@ -327,7 +325,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			// 1. Ignore takes precedence
 			for _, word := range dropWords {
 				if strings.Contains(content, word) {
-					step("FILTERED", fmt.Sprintf("Item dropped due to 'ignore' keyword: '%s'", word), false)
+					step("ignore", fmt.Sprintf("dropped `%s`", word), false)
 					dropped = true
 					break
 				}
@@ -343,7 +341,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 					}
 				}
 				if !kept {
-					step("FILTERED", "Item dropped, did not match any 'keep' keywords", false)
+					step("keep", "no match → dropped", false)
 					dropped = true
 				}
 			}
@@ -380,17 +378,17 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 		isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
 		if err == nil && isDiscarded {
-			step("FIREWALL", fmt.Sprintf("Skipping discarded URL: %s", m.URL), false)
+			step("discarded", fmt.Sprintf("already discarded: `%s`", m.URL), false)
 			continue
 		}
 
 		if m.Text != "" && m.TempHash != "" {
-			step("SCRAPE", fmt.Sprintf("Using passed content for %s", m.URL), false)
+			step("fetch", fmt.Sprintf("passed through: `%s`", m.URL), false)
 
 			savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
 			if savedHash == m.TempHash {
-				runCtx.Stats.PagesCached++
-				step("CACHED", "Page content unchanged, skipping LLM", false)
+				runCtx.Stats.Unchanged++
+				step("unchanged", "skipped", false)
 				continue
 			}
 
@@ -404,14 +402,14 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			time.Sleep(time.Duration(jitter) * time.Second)
 		}
 
-		step("SCRAPE", m.URL, false)
+		step("fetch", fmt.Sprintf("retrieving `%s`", m.URL), false)
 		var text, hash string
 		var fetchErr error
 		if m.Render {
 			browser, bErr := runCtx.GetBrowser(timeoutSec)
 			if bErr != nil {
 				runCtx.Stats.Errors++
-				step("SCRAPE ERROR", bErr.Error(), true)
+				step("fetch", bErr.Error(), true)
 				continue
 			}
 			text, hash, fetchErr = scraper.FetchRenderedAndSanitize(ctx, browser, m.URL, timeoutSec)
@@ -420,16 +418,16 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 		}
 		if fetchErr != nil {
 			runCtx.Stats.Errors++
-			step("SCRAPE ERROR", fetchErr.Error(), true)
+			step("fetch", fetchErr.Error(), true)
 			continue
 		}
 
-		runCtx.Stats.PagesScraped++
+		runCtx.Stats.Fetched++
 
 		savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
 		if savedHash == hash {
-			runCtx.Stats.PagesCached++
-			step("CACHED", "Page content unchanged, skipping LLM", false)
+			runCtx.Stats.Unchanged++
+			step("unchanged", "skipped", false)
 			continue
 		}
 
@@ -460,8 +458,8 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 				}
 			}
 
-			step("STUDY", fmt.Sprintf("Reading %s", m.URL), false)
-			runCtx.Stats.PagesStudied++
+			step("do", fmt.Sprintf("analyzing `%s` for matches", m.URL), false)
+			runCtx.Stats.Analyzed++
 
 			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
 			res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, minion.Do, "json_list", m.URL)
@@ -469,7 +467,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 			if err != nil {
 				runCtx.Stats.Errors++
-				step("STUDY ERROR", fmt.Sprintf("LLM failed for %s: %v", m.URL, err), true)
+				step("do", fmt.Sprintf("`%s` → %v", m.URL, err), true)
 				continue
 			}
 
@@ -477,19 +475,19 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 
 			if res.CacheAction == "discard" {
 				if m.Protected {
-					runCtx.Stats.PagesSkipped++
-					step("OVERRIDE", fmt.Sprintf("AI marked %s as discard, but URL is protected. Skipping instead.", m.URL), false)
+					runCtx.Stats.Skipped++
+					step("discard", fmt.Sprintf("protected: `%s`", m.URL), false)
 				} else {
-					runCtx.Stats.PagesDiscarded++
-					step("DISCARDED", fmt.Sprintf("AI marked %s as irrelevant", m.URL), false)
+					runCtx.Stats.Discarded++
+					step("discard", fmt.Sprintf("irrelevant: `%s`", m.URL), false)
 					_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
 				}
 			} else if len(res.Matches) == 0 {
-				runCtx.Stats.PagesSkipped++
-				step("SKIPPED", fmt.Sprintf("Valid page, but 0 items found for %s", m.URL), false)
+				runCtx.Stats.Skipped++
+				step("skip", fmt.Sprintf("no matches on `%s`", m.URL), false)
 			}
 
-			runCtx.Stats.ItemsFound += len(res.Matches)
+			runCtx.Stats.Results += len(res.Matches)
 
 			for _, aiMatch := range res.Matches {
 				itemURL := aiMatch.URL
@@ -564,7 +562,7 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 
 			if existingID, exists := runCtx.SmartSplit[m.URL]; exists {
 				if existingID != m.ID {
-					step("DEDUPE", fmt.Sprintf("Smart Split dropped duplicate URL: %s", m.URL), false)
+					step("tell", fmt.Sprintf("duplicate: `%s`", m.URL), false)
 					continue
 				}
 			} else {
@@ -573,7 +571,7 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 		}
 
 		if saveHash {
-			step("ITEM", fmt.Sprintf("%s: %s", m.Title, m.Summary), false)
+			step("result", fmt.Sprintf("→ %s", m.Title), false)
 		}
 
 		for _, t := range targets {
@@ -601,12 +599,12 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 				err := delivery.SendNtfy(urlStr, auth, minion.Name, &m, useMarkdown)
 				if err != nil {
 					runCtx.Stats.Errors++
-					step("DELIVERY ERROR", fmt.Sprintf("ntfy: %v", err), true)
+					step("tell", fmt.Sprintf("ntfy: %v", err), true)
 				} else {
 					if saveHash {
-						runCtx.Stats.ItemsDelivered++
+						runCtx.Stats.Sent++
 					}
-					step("DELIVERY", fmt.Sprintf("Sent ntfy alert for '%s'", m.Title), false)
+					step("tell", fmt.Sprintf("ntfy → %s", m.Title), false)
 				}
 			}
 
@@ -615,12 +613,12 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 				err := delivery.SendDiscord(urlStr, minion.Name, &m)
 				if err != nil {
 					runCtx.Stats.Errors++
-					step("DELIVERY ERROR", fmt.Sprintf("discord: %v", err), true)
+					step("tell", fmt.Sprintf("discord: %v", err), true)
 				} else {
 					if saveHash {
-						runCtx.Stats.ItemsDelivered++
+						runCtx.Stats.Sent++
 					}
-					step("DELIVERY", fmt.Sprintf("Sent discord alert for '%s'", m.Title), false)
+					step("tell", fmt.Sprintf("discord → %s", m.Title), false)
 				}
 			}
 
@@ -656,31 +654,31 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 				err := delivery.SendHTTPRequest(wbConfig, &m)
 				if err != nil {
 					runCtx.Stats.Errors++
-					step("DELIVERY ERROR", fmt.Sprintf("http_request: %v", err), true)
+					step("tell", fmt.Sprintf("http: %v", err), true)
 				} else {
 					if saveHash {
-						runCtx.Stats.ItemsDelivered++
+						runCtx.Stats.Sent++
 					}
-					step("DELIVERY", fmt.Sprintf("Sent custom HTTP request for '%s'", m.Title), false)
+					step("tell", fmt.Sprintf("http → %s", m.Title), false)
 				}
 			}
 
 			if minionNameRaw, ok := t["minion"]; ok {
 				targetMinionName := fmt.Sprintf("%v", minionNameRaw)
-				step("CHAIN", fmt.Sprintf("Delivering item to minion '%s'", targetMinionName), false)
+				step("tell", fmt.Sprintf("→ minion `%s`", targetMinionName), false)
 
 				targetMinion, err := config.LoadMinion(targetMinionName)
 				if err != nil {
 					runCtx.Stats.Errors++
-					step("CHAIN ERROR", fmt.Sprintf("Failed to load target minion '%s': %v", targetMinionName, err), true)
+					step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
 				} else {
 					err = ProcessItem(ctx, targetMinion, &m, runCtx, minion.Filename)
 					if err != nil {
 						runCtx.Stats.Errors++
-						step("CHAIN ERROR", fmt.Sprintf("Target minion '%s' failed: %v", targetMinionName, err), true)
+step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
 					} else {
 						if saveHash {
-							runCtx.Stats.ItemsDelivered++
+							runCtx.Stats.Sent++
 						}
 					}
 				}

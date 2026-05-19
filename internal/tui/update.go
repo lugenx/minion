@@ -1104,7 +1104,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return
 			}
 			
-			cmd := exec.CommandContext(ctx, "tail", "-n", "100", "-f", targetLog)
+			cmd := exec.CommandContext(ctx, "tail", "-n", "100", "-F", targetLog)
 			stdout, err := cmd.StdoutPipe()
 			if err != nil {
 				ch <- fmt.Sprintf("Error creating stdout pipe: %v", err)
