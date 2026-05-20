@@ -874,6 +874,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							selected := m.minions[m.cursor]
 							if m.activeJobs[selected.Filename] && m.db != nil {
 								fn := selected.Filename
+								m.stoppingMinions[fn] = true
 								go func() { _ = m.db.QueueAbort(fn) }()
 							}
 							return m, nil
@@ -935,6 +936,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								selected := m.minions[m.cursor]
 								if m.activeJobs[selected.Filename] && m.db != nil {
 									fn := selected.Filename
+									m.stoppingMinions[fn] = true
 									go func() { _ = m.db.QueueAbort(fn) }()
 									// Inject a bright orange line into the logs so user knows it worked
 									m.logContent += lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("[System] Stopping...") + "\n"
@@ -1008,6 +1010,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								selected := m.minions[m.cursor]
 								if m.activeJobs[selected.Filename] && m.db != nil {
 									fn := selected.Filename
+									m.stoppingMinions[fn] = true
 									go func() { _ = m.db.QueueAbort(fn) }()
 								}
 								return m, nil
@@ -1053,7 +1056,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reloadMsg:
 		m.loadState()
 		
-	case tickActiveJobsMsg:
+		case tickActiveJobsMsg:
 		if m.db != nil {
 			m.activeJobs, _ = m.db.GetActiveJobs()
 			m.upCount = 0
@@ -1064,6 +1067,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if activeMinions[mc.Filename] {
 					m.upCount++
+				}
+			}
+			// Clean up stopping flags for jobs that completed
+			for fn := range m.stoppingMinions {
+				if !m.activeJobs[fn] {
+					delete(m.stoppingMinions, fn)
 				}
 			}
 		}

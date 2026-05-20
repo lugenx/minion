@@ -54,11 +54,12 @@ type builderRow struct {
 type model struct {
 	state sessionState
 
-	minions       []*config.MinionConfig
-	activeJobs    map[string]bool
-	upCount       int
-	daemonRunning bool
-	cursor        int
+	minions         []*config.MinionConfig
+	activeJobs      map[string]bool
+	stoppingMinions map[string]bool
+	upCount         int
+	daemonRunning   bool
+	cursor          int
 
 	width  int
 	height int
@@ -133,16 +134,17 @@ func newModel() model {
 		fmt.Fprintf(os.Stderr, "Warning: failed to open store: %v\n", err)
 	}
 
-	m := model{
-		state:           stateDashboard,
-		logSpinner:      s,
-		help:            help.New(),
-		keys:            keys,
-		textInput:       ti,
-		textArea:        ta,
-		builderViewport: bv,
-		db:              db,
-	}
+		m := model{
+			state:           stateDashboard,
+			logSpinner:      s,
+			help:            help.New(),
+			keys:            keys,
+			textInput:       ti,
+			textArea:        ta,
+			builderViewport: bv,
+			db:              db,
+			stoppingMinions: make(map[string]bool),
+		}
 
 	m.loadState()
 	return m
@@ -183,6 +185,13 @@ func (m *model) loadState() {
 	} else {
 		m.activeJobs = make(map[string]bool)
 		m.upCount = 0
+	}
+
+	// Clean up stopping flags for jobs that completed
+	for fn := range m.stoppingMinions {
+		if !m.activeJobs[fn] {
+			delete(m.stoppingMinions, fn)
+		}
 	}
 
 	if len(m.minions) == 0 {

@@ -312,6 +312,10 @@ func (m model) renderHeader(w int) string {
 				dot = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render("○")
 				schedStatus = mutedStyle.Render("Disabled")
 				nextStatus = mutedStyle.Render("-")
+			} else if m.stoppingMinions[mc.Filename] {
+				dot = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("▶")
+				schedStatus = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Stopping...")
+				nextStatus = mutedStyle.Render("-")
 			} else if isActive {
 				dot = lipgloss.NewStyle().Foreground(colorSuccess).Render("▶")
 				schedStatus = lipgloss.NewStyle().Foreground(colorSuccess).Render("Running")
