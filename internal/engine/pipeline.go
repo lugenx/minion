@@ -302,61 +302,7 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 		step("from", fmt.Sprintf("from `%s`", parentName), false)
 	}
 
-	// Step 1: Filter
-	if len(minion.Keep) > 0 || len(minion.Ignore) > 0 {
-		var dropWords []string
-		for _, w := range minion.Ignore {
-			dropWords = append(dropWords, strings.ToLower(w))
-		}
-
-		var keepWords []string
-		for _, w := range minion.Keep {
-			keepWords = append(keepWords, strings.ToLower(w))
-		}
-
-		var nextArray []types.Item
-		for _, m := range matchArray {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			dropped := false
-			content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
-
-			// 1. Ignore takes precedence
-			for _, word := range dropWords {
-				if strings.Contains(content, word) {
-					step("ignore", fmt.Sprintf("dropped `%s`", word), false)
-					dropped = true
-					break
-				}
-			}
-
-			// 2. Keep check
-			if !dropped && len(keepWords) > 0 {
-				kept := false
-				for _, word := range keepWords {
-					if strings.Contains(content, word) {
-						kept = true
-						break
-					}
-				}
-				if !kept {
-					step("keep", "no match → dropped", false)
-					dropped = true
-				}
-			}
-
-			if !dropped {
-				nextArray = append(nextArray, m)
-			}
-		}
-		matchArray = nextArray
-		if len(matchArray) == 0 {
-			return nil
-		}
-	}
-
-	// Step 2: Scrape
+	// Step 1: Scrape
 	timeoutSec := minion.Settings.Timeout
 	if timeoutSec <= 0 {
 		timeoutSec = 30
@@ -440,6 +386,60 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 	matchArray = scrapedArray
 	if len(matchArray) == 0 {
 		return nil
+	}
+
+	// Step 2: Filter
+	if len(minion.Keep) > 0 || len(minion.Ignore) > 0 {
+		var dropWords []string
+		for _, w := range minion.Ignore {
+			dropWords = append(dropWords, strings.ToLower(w))
+		}
+
+		var keepWords []string
+		for _, w := range minion.Keep {
+			keepWords = append(keepWords, strings.ToLower(w))
+		}
+
+		var nextArray []types.Item
+		for _, m := range matchArray {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			dropped := false
+			content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
+
+			// 1. Ignore takes precedence
+			for _, word := range dropWords {
+				if strings.Contains(content, word) {
+					step("ignore", fmt.Sprintf("dropped `%s`", word), false)
+					dropped = true
+					break
+				}
+			}
+
+			// 2. Keep check
+			if !dropped && len(keepWords) > 0 {
+				kept := false
+				for _, word := range keepWords {
+					if strings.Contains(content, word) {
+						kept = true
+						break
+					}
+				}
+				if !kept {
+					step("keep", "no match → dropped", false)
+					dropped = true
+				}
+			}
+
+			if !dropped {
+				nextArray = append(nextArray, m)
+			}
+		}
+		matchArray = nextArray
+		if len(matchArray) == 0 {
+			return nil
+		}
 	}
 
 	// Step 3: Study (LLM)

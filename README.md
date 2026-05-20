@@ -155,8 +155,8 @@ from:
   - minion: other_minion_filename
 ```
 
-### keep / ignore (Fast Filtering)
-LLM calls cost money. These do a case-insensitive substring match on the URL, title, and preview text. Use them to drop bad URLs before scraping.
+### keep / ignore (Content Filtering)
+LLM calls cost money. These do a case-insensitive substring match on the full scraped page content, title, summary, and URL. Use them to drop irrelevant pages before the LLM call.
 
 **ANY** logic: if multiple words are listed, a match on any one triggers the rule. `ignore` is evaluated first — if an ignore word matches, the item is discarded even if it also matches a keep word.
 
