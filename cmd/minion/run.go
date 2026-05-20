@@ -21,7 +21,6 @@ import (
 
 	"minion/internal/config"
 	"minion/internal/engine"
-	"minion/internal/llm"
 	"minion/internal/store"
 )
 
@@ -207,12 +206,6 @@ func runDaemon() {
 	_ = dbStore.ClearActiveJobs()
 	_ = dbStore.ClearAbortQueue()
 
-	llmEval, err := llm.NewEvaluator()
-	if err != nil {
-		fmt.Printf("Failed to initialize LLM evaluator: %v\n", err)
-		os.Exit(1)
-	}
-
 	daemonCtx, daemonCancel := context.WithCancel(context.Background())
 	defer daemonCancel()
 
@@ -236,8 +229,8 @@ func runDaemon() {
 	for {
 		select {
 		case <-ticker.C:
-			syncFleet(daemonCtx, dbStore, llmEval, c, scheduledJobs, activeCancels)
-			ranWork := processRunQueue(daemonCtx, dbStore, llmEval, activeCancels)
+			syncFleet(daemonCtx, dbStore, c, scheduledJobs, activeCancels)
+			ranWork := processRunQueue(daemonCtx, dbStore, activeCancels)
 			processAbortQueue(dbStore, activeCancels)
 			
 			if !ranWork {
@@ -255,7 +248,7 @@ func runDaemon() {
 	}
 }
 
-func syncFleet(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator, c *cron.Cron, scheduledJobs map[string]cron.EntryID, activeCancels *sync.Map) {
+func syncFleet(ctx context.Context, dbStore *store.Store, c *cron.Cron, scheduledJobs map[string]cron.EntryID, activeCancels *sync.Map) {
 	minions, err := config.LoadAllMinions()
 	if err != nil {
 		return
@@ -292,7 +285,7 @@ func syncFleet(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator
 
 			targetMinion := m // capture for closure
 			entryID, err := c.AddFunc(cronExpr, func() {
-				executeMinion(ctx, dbStore, llmEval, targetMinion, "cron", activeCancels)
+				executeMinion(ctx, dbStore, targetMinion, "cron", activeCancels)
 			})
 			if err == nil {
 				scheduledJobs[filename] = entryID
@@ -302,7 +295,7 @@ func syncFleet(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator
 	}
 }
 
-func processRunQueue(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator, activeCancels *sync.Map) bool {
+func processRunQueue(ctx context.Context, dbStore *store.Store, activeCancels *sync.Map) bool {
 	queue, err := dbStore.GetRunQueue()
 	if err != nil || len(queue) == 0 {
 		return false
@@ -314,7 +307,7 @@ func processRunQueue(ctx context.Context, dbStore *store.Store, llmEval *llm.Eva
 		if err == nil {
 			logMessage("INFO", m.Name, "Triggering immediate manual execution from queue.")
 			// Execute in background routine so we don't block the 1s loop
-			go executeMinion(ctx, dbStore, llmEval, m, "manual", activeCancels)
+			go executeMinion(ctx, dbStore, m, "manual", activeCancels)
 			spawned = true
 		}
 		_ = dbStore.DequeueRun(filename)
@@ -338,7 +331,7 @@ func processAbortQueue(dbStore *store.Store, activeCancels *sync.Map) {
 	}
 }
 
-func executeMinion(ctx context.Context, dbStore *store.Store, llmEval *llm.Evaluator, m *config.MinionConfig, triggerType string, activeCancels *sync.Map) {
+func executeMinion(ctx context.Context, dbStore *store.Store, m *config.MinionConfig, triggerType string, activeCancels *sync.Map) {
 	activeJobs, _ := dbStore.GetActiveJobs()
 	if activeJobs[m.Filename] {
 		logMessage("WARN", m.Name, "Skipping execution: minion is already actively running.")
@@ -374,7 +367,6 @@ func executeMinion(ctx context.Context, dbStore *store.Store, llmEval *llm.Evalu
 	
 	runCtx := &engine.RunContext{
 		Store: dbStore,
-		LLM:   llmEval,
 		OnStep: func(step, details string, isError bool) {
 			if step == "" {
 				fmt.Fprintln(minionLogFile)

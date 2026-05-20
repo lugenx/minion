@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -18,7 +17,6 @@ import (
 
 	"minion/internal/config"
 	"minion/internal/delivery"
-	"minion/internal/llm"
 	"minion/internal/scraper"
 	"minion/internal/store"
 	"minion/internal/types"
@@ -79,7 +77,6 @@ func (s *Stats) GenerateReport(minionName string) string {
 
 type RunContext struct {
 	Store      *store.Store
-	LLM        *llm.Evaluator
 	Stats      *Stats
 	OnStep     func(step, details string, isError bool)
 	SmartSplit map[string]string
@@ -144,8 +141,8 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 	var startingURLs []string
 	protectedURLs := make(map[string]bool)
 	renderURLs := make(map[string]bool)
+	hasNonMinionSource := false
 
-	// 1. GENERATORS (Gather all URLs from `from:`)
 	rand.Seed(time.Now().UnixNano())
 
 	for _, source := range minion.From {
@@ -153,34 +150,23 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			return ctx.Err()
 		}
 
-		// Skip minion sources (chain authorization, not URL generators)
 		if source.Minion != "" {
 			continue
 		}
 
-		// Handle search
-		if source.Search != "" {
-			limit := source.Limit
-			if limit <= 0 {
-				limit = 3
-			}
+		hasNonMinionSource = true
 
+		if source.Search != "" {
 			if len(startingURLs) > 0 {
 				time.Sleep(time.Duration(rand.Intn(3)+1) * time.Second)
 			}
-			step("from", fmt.Sprintf("search `%s`", source.Search), false)
-			urls, err := scraper.SearchDuckDuckGo(ctx, source.Search, limit, 15)
-			if err != nil {
-				runCtx.Stats.Errors++
-				step("from", err.Error(), true)
-				continue
+			urls := gatherFromSearchSource(ctx, minion, &source, runCtx)
+			if urls != nil {
+				startingURLs = append(startingURLs, urls...)
 			}
-			runCtx.Stats.Fetched += len(urls)
-			startingURLs = append(startingURLs, urls...)
 			continue
 		}
 
-		// Handle browse/url
 		if source.URL != "" {
 			if source.Match == "" {
 				startingURLs = append(startingURLs, source.URL)
@@ -222,44 +208,50 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 		}
 	}
 
-	// 2. THE LINEAR STREAM (Process one by one)
-	var uniqueURLs []string
-	seenURLs := make(map[string]bool)
-	for _, u := range startingURLs {
-		if u != "" && !seenURLs[u] {
-			seenURLs[u] = true
-			uniqueURLs = append(uniqueURLs, u)
-		}
-	}
-
-	// Always process at least once, even with empty URL (for static study tasks, downstream worker receives)
-	if len(uniqueURLs) == 0 {
-		uniqueURLs = append(uniqueURLs, "")
-	}
-
-	for _, u := range uniqueURLs {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
+	if !hasNonMinionSource {
 		step("", "", false)
-
-		item := &types.Item{
-			ID:        generateID(),
-			URL:       u,
-			Protected: protectedURLs[u],
-			Render:    renderURLs[u],
-		}
-		err := ProcessItem(ctx, minion, item, runCtx, "cron")
+		err := ProcessItem(ctx, minion, &types.Item{
+			ID:         generateID(),
+			SourceType: "do",
+		}, runCtx, "cron")
 		if err != nil {
 			runCtx.Stats.Errors++
-			step("error", fmt.Sprintf("→ `%s`: %v", u, err), true)
+			step("error", err.Error(), true)
+		}
+	} else {
+		var uniqueURLs []string
+		seenURLs := make(map[string]bool)
+		for _, u := range startingURLs {
+			if u != "" && !seenURLs[u] {
+				seenURLs[u] = true
+				uniqueURLs = append(uniqueURLs, u)
+			}
+		}
+
+		for _, u := range uniqueURLs {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			step("", "", false)
+
+			item := &types.Item{
+				ID:         generateID(),
+				URL:        u,
+				Protected:  protectedURLs[u],
+				Render:     renderURLs[u],
+				SourceType: "url",
+			}
+			err := ProcessItem(ctx, minion, item, runCtx, "cron")
+			if err != nil {
+				runCtx.Stats.Errors++
+				step("error", fmt.Sprintf("→ `%s`: %v", u, err), true)
+			}
 		}
 	}
 
 	runCtx.Stats.EndTime = time.Now()
 
-	// 3. FINAL REPORTING
 	if len(minion.Report) > 0 {
 		reportText := runCtx.Stats.GenerateReport(minion.Name)
 		reportItem := types.Item{
@@ -275,260 +267,15 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 	return nil
 }
 
-// ProcessItem pushes a single item through the pipeline (Filter -> Scrape -> Study -> Deliver).
 func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.Item, runCtx *RunContext, parentName string) error {
-	step := func(s, details string, isError bool) {
-		if runCtx.OnStep != nil {
-			runCtx.OnStep(s, details, isError)
-		}
+	switch item.SourceType {
+	case "do":
+		return processDoOnly(ctx, minion, item, runCtx)
+	case "minion":
+		return processMinionChain(ctx, minion, item, runCtx, parentName)
+	default:
+		return processURLItem(ctx, minion, item, runCtx)
 	}
-
-	var matchArray []types.Item
-	matchArray = append(matchArray, *item)
-
-	// Step 0: Security Checkpoint (from.minion)
-	if parentName != "" && parentName != "cron" {
-		authorized := false
-		for _, source := range minion.From {
-			if source.Minion != "" && parentName == source.Minion {
-				authorized = true
-				break
-			}
-		}
-		if !authorized {
-			step("from", fmt.Sprintf("rejected `%s`", parentName), true)
-			return nil
-		}
-		step("from", fmt.Sprintf("from `%s`", parentName), false)
-	}
-
-	// Step 1: Scrape
-	timeoutSec := minion.Settings.Timeout
-	if timeoutSec <= 0 {
-		timeoutSec = 30
-	}
-	delaySec := minion.Settings.Delay
-	if delaySec <= 0 {
-		delaySec = 2
-	}
-
-	var scrapedArray []types.Item
-	for _, m := range matchArray {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if m.URL == "" {
-			scrapedArray = append(scrapedArray, m)
-			continue
-		}
-
-		isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
-		if err == nil && isDiscarded {
-			step("discarded", fmt.Sprintf("already discarded: `%s`", m.URL), false)
-			continue
-		}
-
-		if m.Text != "" && m.TempHash != "" {
-			step("fetch", fmt.Sprintf("passed through: `%s`", m.URL), false)
-
-			savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
-			if savedHash == m.TempHash {
-				runCtx.Stats.Unchanged++
-				step("unchanged", "skipped", false)
-				continue
-			}
-
-			_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, m.TempHash)
-			scrapedArray = append(scrapedArray, m)
-			continue
-		}
-
-		if delaySec > 0 {
-			jitter := rand.Intn(delaySec) + 1
-			time.Sleep(time.Duration(jitter) * time.Second)
-		}
-
-		step("fetch", fmt.Sprintf("retrieving `%s`", m.URL), false)
-		var text, hash string
-		var fetchErr error
-		if m.Render {
-			browser, bErr := runCtx.GetBrowser(timeoutSec)
-			if bErr != nil {
-				runCtx.Stats.Errors++
-				step("fetch", bErr.Error(), true)
-				continue
-			}
-			text, hash, fetchErr = scraper.FetchRenderedAndSanitize(ctx, browser, m.URL, timeoutSec)
-		} else {
-			text, hash, fetchErr = scraper.FetchAndSanitize(ctx, m.URL, timeoutSec)
-		}
-		if fetchErr != nil {
-			runCtx.Stats.Errors++
-			step("fetch", fetchErr.Error(), true)
-			continue
-		}
-
-		runCtx.Stats.Fetched++
-
-		savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
-		if savedHash == hash {
-			runCtx.Stats.Unchanged++
-			step("unchanged", "skipped", false)
-			continue
-		}
-
-		_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, hash)
-
-		m.Text = text
-		m.TempHash = hash
-		scrapedArray = append(scrapedArray, m)
-	}
-	matchArray = scrapedArray
-	if len(matchArray) == 0 {
-		return nil
-	}
-
-	// Step 2: Filter
-	if len(minion.Keep) > 0 || len(minion.Ignore) > 0 {
-		var dropWords []string
-		for _, w := range minion.Ignore {
-			dropWords = append(dropWords, strings.ToLower(w))
-		}
-
-		var keepWords []string
-		for _, w := range minion.Keep {
-			keepWords = append(keepWords, strings.ToLower(w))
-		}
-
-		var nextArray []types.Item
-		for _, m := range matchArray {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			dropped := false
-			content := strings.ToLower(fmt.Sprintf("%s %s %s %s", m.URL, m.Text, m.Title, m.Summary))
-
-			// 1. Ignore takes precedence
-			for _, word := range dropWords {
-				if strings.Contains(content, word) {
-					step("ignore", fmt.Sprintf("dropped `%s`", word), false)
-					dropped = true
-					break
-				}
-			}
-
-			// 2. Keep check
-			if !dropped && len(keepWords) > 0 {
-				kept := false
-				for _, word := range keepWords {
-					if strings.Contains(content, word) {
-						kept = true
-						break
-					}
-				}
-				if !kept {
-					step("keep", "no match → dropped", false)
-					dropped = true
-				}
-			}
-
-			if !dropped {
-				nextArray = append(nextArray, m)
-			}
-		}
-		matchArray = nextArray
-		if len(matchArray) == 0 {
-			return nil
-		}
-	}
-
-	// Step 3: Study (LLM)
-	if minion.Do != "" {
-		var nextArray []types.Item
-		for _, m := range matchArray {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			content := m.Text
-			if content == "" {
-				if m.URL != "" {
-					content = "URL: " + m.URL
-				} else {
-					content = minion.Do
-				}
-			}
-
-			step("do", fmt.Sprintf("analyzing `%s` for matches", m.URL), false)
-			runCtx.Stats.Analyzed++
-
-			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-			modelOverride := minion.Settings.Model
-			res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, minion.Do, "json_list", m.URL, modelOverride)
-			evalCancel()
-
-			if err != nil {
-				runCtx.Stats.Errors++
-				step("do", fmt.Sprintf("`%s` → %v", m.URL, err), true)
-				continue
-			}
-
-			runCtx.Stats.TotalCost += cost
-
-			if res.CacheAction == "discard" {
-				if m.Protected {
-					runCtx.Stats.Skipped++
-					step("discard", fmt.Sprintf("protected: `%s`", m.URL), false)
-				} else {
-					runCtx.Stats.Discarded++
-					step("discard", fmt.Sprintf("irrelevant: `%s`", m.URL), false)
-					_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
-				}
-			} else if len(res.Matches) == 0 {
-				runCtx.Stats.Skipped++
-				step("skip", fmt.Sprintf("no matches on `%s`", m.URL), false)
-			}
-
-			runCtx.Stats.Results += len(res.Matches)
-
-			for _, aiMatch := range res.Matches {
-				itemURL := aiMatch.URL
-				if itemURL == "" {
-					itemURL = m.URL
-				}
-
-				itemURL = strings.TrimSuffix(itemURL, "/")
-				cleanParentURL := strings.TrimSuffix(m.URL, "/")
-
-				inheritedText := ""
-				inheritedHash := ""
-				if itemURL == cleanParentURL {
-					inheritedText = m.Text
-					inheritedHash = m.TempHash
-				}
-
-				nextArray = append(nextArray, types.Item{
-					ID:        generateID(),
-					URL:       itemURL,
-					ParentURL: cleanParentURL,
-					Title:     aiMatch.Title,
-					Summary:   aiMatch.Summary,
-					Text:      inheritedText,
-					TempHash:  inheritedHash,
-				})
-			}
-		}
-		matchArray = nextArray
-		if len(matchArray) == 0 {
-			return nil
-		}
-	}
-
-	// Step 4: Deliver
-	if len(minion.Tell) > 0 {
-		deliverTargets(ctx, minion, runCtx, matchArray, minion.Tell, true)
-	}
-
-	return nil
 }
 
 var envRegex = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}`)
@@ -631,7 +378,7 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 					wbConfig.Method = method
 				}
 				if tmpl, ok := t["payload_template"].(string); ok {
-					wbConfig.PayloadTemplate = tmpl // template has its own {{.}} variable structure, no strictExpandEnv here
+					wbConfig.PayloadTemplate = tmpl
 				}
 				if headers, ok := t["headers"].(map[string]interface{}); ok {
 					wbConfig.Headers = make(map[string]string)
@@ -673,10 +420,12 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 					runCtx.Stats.Errors++
 					step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
 				} else {
-					err = ProcessItem(ctx, targetMinion, &m, runCtx, minion.Filename)
+					chainItem := m
+					chainItem.SourceType = "minion"
+					err = ProcessItem(ctx, targetMinion, &chainItem, runCtx, minion.Filename)
 					if err != nil {
 						runCtx.Stats.Errors++
-step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
+						step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
 					} else {
 						if saveHash {
 							runCtx.Stats.Sent++
