@@ -29,18 +29,14 @@ type Evaluator struct {
 
 // NewEvaluator creates a new Evaluator.
 func NewEvaluator() (*Evaluator, error) {
-	model := os.Getenv("DEFAULT_MODEL")
-	if model == "" {
-		model = "openai/gpt-4o-mini"
-	}
-
 	return &Evaluator{
-		model: model,
+		model: os.Getenv("DEFAULT_MODEL"),
 	}, nil
 }
 
 // EvaluateText asks the LLM to evaluate the text against the provided rules.
-func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string, source string) (*EvalResult, float64, error) {
+// If modelOverride is non-empty, it uses that model instead of the default.
+func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, format string, source string, modelOverride string) (*EvalResult, float64, error) {
 	currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 
 	systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
@@ -74,13 +70,21 @@ func (e *Evaluator) EvaluateText(ctx context.Context, text string, task string, 
   ]
 }`
 
+	useModel := e.model
+	if modelOverride != "" {
+		useModel = modelOverride
+	}
+	if useModel == "" {
+		return nil, 0, fmt.Errorf("no model configured: set DEFAULT_MODEL in .env or add model in settings")
+	}
+
 	userMessage := ""
 	if source != "" {
 		userMessage += fmt.Sprintf("--- SOURCE: %s ---\n\n", source)
 	}
 	userMessage += text
 
-	content, cost, err := performChatCompletion(ctx, e.model, systemPrompt, userMessage)
+	content, cost, err := performChatCompletion(ctx, useModel, systemPrompt, userMessage)
 	if err != nil {
 		return nil, 0, err
 	}

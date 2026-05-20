@@ -447,6 +447,7 @@ func (s *SettingsStep) GetRows(stepIndex int) []builderRow {
 	return []builderRow{
 		{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "Timeout", Label: "timeout", Value: fmt.Sprintf("%d", s.Settings.Timeout)},
 		{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "Delay", Label: "delay", Value: fmt.Sprintf("%d", s.Settings.Delay)},
+		{Type: rowStepField, StepIndex: stepIndex, TargetIndex: -1, Field: "Model", Label: "model", Value: s.Settings.Model},
 	}
 }
 func (s *SettingsStep) UpdateField(field string, targetIndex int, value string) error {
@@ -455,6 +456,9 @@ func (s *SettingsStep) UpdateField(field string, targetIndex int, value string) 
 	}
 	if field == "Delay" {
 		if i, err := strconv.Atoi(value); err == nil { s.Settings.Delay = i }
+	}
+	if field == "Model" {
+		s.Settings.Model = value
 	}
 	return nil
 }

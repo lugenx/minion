@@ -462,7 +462,8 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 			runCtx.Stats.Analyzed++
 
 			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-			res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, minion.Do, "json_list", m.URL)
+			modelOverride := minion.Settings.Model
+			res, cost, err := runCtx.LLM.EvaluateText(evalCtx, content, minion.Do, "json_list", m.URL, modelOverride)
 			evalCancel()
 
 			if err != nil {

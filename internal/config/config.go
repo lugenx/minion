@@ -47,8 +47,9 @@ func (s *Source) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type Settings struct {
-	Timeout int `yaml:"timeout,omitempty"`
-	Delay   int `yaml:"delay,omitempty"`
+	Timeout int    `yaml:"timeout,omitempty"`
+	Delay   int    `yaml:"delay,omitempty"`
+	Model   string `yaml:"model,omitempty"`
 }
 
 // MinionConfig represents a task schema.
@@ -195,8 +196,8 @@ func scaffoldExampleFiles() {
 # REQUIRED: Your OpenRouter API key for LLM evaluations
 OPENROUTER_API_KEY=your_api_key_here
 
-# OPTIONAL: The model you want the engine to use (Defaults to gpt-4o-mini if missing)
-DEFAULT_MODEL=openai/gpt-4o-mini
+# OPTIONAL: Default model used by all minions (can be overridden per-minion in settings.model)
+DEFAULT_MODEL=google/gemma-4-31b-it
 `
 	_ = os.WriteFile(EnvPath, []byte(envContent), 0644)
 

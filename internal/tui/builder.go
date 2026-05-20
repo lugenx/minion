@@ -93,7 +93,7 @@ func initBuilderData(m *config.MinionConfig) *builderData {
 			data.Steps = append(data.Steps, &ReportStep{Targets: m.Report})
 		}
 
-		if m.Settings.Timeout > 0 || m.Settings.Delay > 0 {
+		if m.Settings.Timeout > 0 || m.Settings.Delay > 0 || m.Settings.Model != "" {
 			data.Steps = append(data.Steps, &SettingsStep{Settings: m.Settings})
 		}
 	} else {
