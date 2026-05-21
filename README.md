@@ -79,6 +79,9 @@ from:
     follow: /p/
     render: true
 
+  # 5. Run a shell command
+  - command: curl -s https://api.example.com/status
+
 keep:
   - startup
   - release
@@ -139,7 +142,7 @@ when: "daily @ 09:00"
 - Raw cron: `*/15 * * * *`
 
 ### from (Data Sources)
-You can specify URLs, search queries, or hand off data from another minion.
+You can specify URLs, search queries, shell commands, or hand off data from another minion.
 
 Add `render: true` for JavaScript-heavy pages. This boots a headless Chromium browser to execute JS and wait for network requests before extracting links.
 
@@ -153,6 +156,7 @@ from:
   - search: latest open source AI models
     limit: 3
   - minion: other_minion_filename
+  - command: curl -s https://api.example.com/status
 ```
 
 ### keep / ignore (Content Filtering)

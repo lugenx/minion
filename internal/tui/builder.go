@@ -127,6 +127,16 @@ func saveBuilder(data *builderData) error {
 	}
 
 	for _, step := range data.Steps {
+		if fs, ok := step.(*FromStep); ok {
+			var filtered []config.Source
+			for _, s := range fs.Sources {
+				if s.URL == "" && s.Search == "" && s.Minion == "" && s.Command == "" {
+					continue
+				}
+				filtered = append(filtered, s)
+			}
+			fs.Sources = filtered
+		}
 		step.ApplyToConfig(&mConfig)
 	}
 

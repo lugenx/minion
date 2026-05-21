@@ -243,7 +243,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			if m.addSubItemField != "" {
 					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
-						sugs := []string{"url", "search", "minion"}
+						sugs := []string{"url", "search", "minion", "command"}
 						if len(sugs) > 0 {
 							m.textInput.SetValue(sugs[0])
 							m.textInput.SetCursor(len(sugs[0]))
@@ -259,7 +259,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if keyMsg, ok := msg.(tea.KeyMsg); ok {
 						if key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))) {
 							val := strings.ToLower(strings.TrimSpace(m.textInput.Value()))
-							if val != "url" && val != "search" && val != "minion" {
+							if val != "url" && val != "search" && val != "minion" && val != "command" {
 								m.syncBuilderViewport()
 								return m, tea.Batch(cmds...)
 							}
@@ -268,6 +268,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								step.AddArrayItem("FromURL")
 							} else if val == "search" {
 								step.AddArrayItem("FromSearch")
+							} else if val == "command" {
+								step.AddArrayItem("FromCommand")
 							} else {
 								step.AddArrayItem("FromMinion")
 							}

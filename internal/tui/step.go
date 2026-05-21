@@ -51,6 +51,8 @@ func (s *FromStep) GetRows(stepIndex int) []builderRow {
 	var rows []builderRow
 	for i, src := range s.Sources {
 		switch {
+		case src.SourceType == "command" || src.Command != "":
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromCommand", Label: "command", Value: src.Command})
 		case src.SourceType == "minion" || src.Minion != "":
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMinion", Label: "minion", Value: src.Minion})
 		case src.SourceType == "search" || src.Search != "" || src.Limit != 0:
@@ -75,6 +77,7 @@ func (s *FromStep) UpdateField(field string, targetIndex int, value string) erro
 	case "FromMatch": s.Sources[targetIndex].Match = value
 	case "FromSearch": s.Sources[targetIndex].Search = value
 	case "FromMinion": s.Sources[targetIndex].Minion = value
+	case "FromCommand": s.Sources[targetIndex].Command = value
 	case "FromLimit":
 		if l, err := strconv.Atoi(value); err == nil { s.Sources[targetIndex].Limit = l }
 	}
@@ -87,6 +90,8 @@ func (s *FromStep) AddArrayItem(field string) {
 		s.Sources = append(s.Sources, config.Source{Search: "", Limit: 3, SourceType: "search"})
 	} else if field == "FromMinion" {
 		s.Sources = append(s.Sources, config.Source{Minion: "", SourceType: "minion"})
+	} else if field == "FromCommand" {
+		s.Sources = append(s.Sources, config.Source{Command: "", SourceType: "command"})
 	}
 }
 func (s *FromStep) RemoveArrayItem(field string, index int) {

@@ -568,7 +568,7 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 					}
 					m.textInput.Width = inputW
 					target.WriteString(fmt.Sprintf("%s%s\n", fullCursor, m.textInput.View()))
-					sugs := []string{"url", "search", "minion"}
+					sugs := []string{"url", "search", "minion", "command"}
 					if len(sugs) > 0 {
 						for j, s := range sugs {
 							if j == 0 {

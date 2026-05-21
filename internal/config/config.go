@@ -11,24 +11,26 @@ import (
 )
 
 type Source struct {
-	URL    string `yaml:"url,omitempty"`
-	Render bool   `yaml:"render,omitempty"`
-	Match  string `yaml:"follow,omitempty"`
-	Search string `yaml:"search,omitempty"`
-	Limit  int    `yaml:"limit,omitempty"`
-	Minion string `yaml:"minion,omitempty"`
+	URL        string `yaml:"url,omitempty"`
+	Render     bool   `yaml:"render,omitempty"`
+	Match      string `yaml:"follow,omitempty"`
+	Search     string `yaml:"search,omitempty"`
+	Limit      int    `yaml:"limit,omitempty"`
+	Minion     string `yaml:"minion,omitempty"`
+	Command    string `yaml:"command,omitempty"`
 	SourceType string `yaml:"-"`
 }
 
 func (s *Source) UnmarshalYAML(value *yaml.Node) error {
 	var raw struct {
-		URL    string `yaml:"url"`
-		Render bool   `yaml:"render"`
-		Match  string `yaml:"match"`
-		Follow string `yaml:"follow"`
-		Search string `yaml:"search"`
-		Limit  int    `yaml:"limit"`
-		Minion string `yaml:"minion"`
+		URL     string `yaml:"url"`
+		Render  bool   `yaml:"render"`
+		Match   string `yaml:"match"`
+		Follow  string `yaml:"follow"`
+		Search  string `yaml:"search"`
+		Limit   int    `yaml:"limit"`
+		Minion  string `yaml:"minion"`
+		Command string `yaml:"command"`
 	}
 	if err := value.Decode(&raw); err != nil {
 		return err
@@ -38,10 +40,21 @@ func (s *Source) UnmarshalYAML(value *yaml.Node) error {
 	s.Search = raw.Search
 	s.Limit = raw.Limit
 	s.Minion = raw.Minion
+	s.Command = raw.Command
 	if raw.Follow != "" {
 		s.Match = raw.Follow
 	} else {
 		s.Match = raw.Match
+	}
+	switch {
+	case raw.Command != "":
+		s.SourceType = "command"
+	case raw.Minion != "":
+		s.SourceType = "minion"
+	case raw.Search != "" || raw.Limit != 0:
+		s.SourceType = "search"
+	default:
+		s.SourceType = "url"
 	}
 	return nil
 }
@@ -220,6 +233,9 @@ from:
   - search: programming meetups this week
     limit: 3
 
+  # 5. Run a system command
+  - command: df -h
+
 keep:
   - golang
   - rust
@@ -236,9 +252,12 @@ do: Summarize each event with date, location, and topic.
 tell:
   - ntfy: https://ntfy.sh/your-topic-here
     markdown: true
+    basic_auth:
+      username: "${NTFY_USER}"
+      password: "${NTFY_PASS}"
 
 report:
-  # - ntfy: https://ntfy.sh/your-topic-here
+  - ntfy: https://ntfy.sh/your-topic-here
 
 settings:
   timeout: 15

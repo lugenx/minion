@@ -167,6 +167,20 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 			continue
 		}
 
+		if source.Command != "" {
+			step("from", fmt.Sprintf("command `%s`", source.Command), false)
+			err := ProcessItem(ctx, minion, &types.Item{
+				ID:         generateID(),
+				SourceType: "command",
+				Command:    source.Command,
+			}, runCtx, "cron")
+			if err != nil {
+				runCtx.Stats.Errors++
+				step("error", err.Error(), true)
+			}
+			continue
+		}
+
 		if source.URL != "" {
 			if source.Match == "" {
 				startingURLs = append(startingURLs, source.URL)
@@ -273,6 +287,8 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 		return processDoOnly(ctx, minion, item, runCtx)
 	case "minion":
 		return processMinionChain(ctx, minion, item, runCtx, parentName)
+	case "command":
+		return processCommandItem(ctx, minion, item, runCtx)
 	default:
 		return processURLItem(ctx, minion, item, runCtx)
 	}

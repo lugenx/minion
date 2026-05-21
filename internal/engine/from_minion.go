@@ -63,7 +63,7 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 			}
 		}
 
-		if m.Text != "" && m.TempHash != "" {
+		if m.Text != "" && m.TempHash != "" && m.URL != "" {
 			step("fetch", fmt.Sprintf("passed through: `%s`", m.URL), false)
 
 			savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)

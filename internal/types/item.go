@@ -9,6 +9,7 @@ type Item struct {
 	Summary    string
 	Title      string
 	TempHash   string
+	Command    string
 	Protected  bool
 	Render     bool
 	SourceType string
