@@ -58,7 +58,7 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 
 	exitCode := 0
 	if runErr != nil {
-		if execCtx.Err() != nil {
+		if execCtx.Err() == context.DeadlineExceeded {
 			runCtx.Stats.Errors++
 			step("fetch", fmt.Sprintf("command timed out after %ds: `%s`", timeoutSec, command), true)
 			return nil
