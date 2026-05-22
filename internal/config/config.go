@@ -262,6 +262,7 @@ report:
 settings:
   timeout: 15
   delay: 2
+  model: google/gemma-4-31b-it
 `
 	examplePath := filepath.Join(MinionsDir, "example.yaml")
 	_ = os.WriteFile(examplePath, []byte(exampleContent), 0644)

@@ -107,6 +107,7 @@ report:
 settings:
   timeout: 15
   delay: 2
+  model: google/gemma-4-31b-it
 ```
 
 ### 3. Run It
@@ -229,13 +230,16 @@ Cost:   $0.0012
 ```
 
 ### settings
-Controls scraping behavior globally.
+Controls the LLM model and scraping behavior for this minion.
 
 ```yaml
 settings:
-  timeout: 15   # Max seconds per page
-  delay: 2      # Random delay 1-2s between requests
+  timeout: 15                     # Max seconds per page
+  delay: 2                        # Random delay 1-2s between requests
+  model: google/gemma-4-31b-it    # Override DEFAULT_MODEL env var for this minion
 ```
+
+If not set, falls back to the `DEFAULT_MODEL` environment variable in `.env`.
 
 ---
 
