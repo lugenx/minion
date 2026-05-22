@@ -57,11 +57,11 @@ func (s *FromStep) GetRows(stepIndex int) []builderRow {
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMinion", Label: "minion", Value: src.Minion})
 		case src.SourceType == "search" || src.Search != "" || src.Limit != 0:
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromSearch", Label: "search", Value: src.Search})
-			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromLimit", Label: "  limit", Value: fmt.Sprintf("%d", src.Limit)})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromLimit", Label: "limit", Value: fmt.Sprintf("%d", src.Limit)})
 		default:
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromURL", Label: "url", Value: src.URL})
-			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromRender", Label: "  render", Value: fmt.Sprintf("%t", src.Render)})
-			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMatch", Label: "  follow", Value: src.Match})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromRender", Label: "render", Value: fmt.Sprintf("%t", src.Render)})
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMatch", Label: "follow", Value: src.Match})
 		}
 		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Source ]"})
 		rows = append(rows, builderRow{Type: rowSpacer, StepIndex: stepIndex, TargetIndex: -1, Field: "EditOnlySpacer"})
@@ -205,12 +205,7 @@ func (s *TellStep) GetRows(stepIndex int) []builderRow {
 			rows = append(rows, builderRow{Type: rowSpacer, StepIndex: stepIndex, TargetIndex: -1, Field: "EditOnlySpacer"})
 		}
 
-		urlLabel := "url"
-		if ttype == "minion" {
-			urlLabel = "minion"
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "TellType", Label: "type", Value: ttype})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "TellURL", Label: urlLabel, Value: url})
+		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "TellURL", Label: ttype, Value: url})
 
 		switch ttype {
 		case "ntfy":
@@ -340,12 +335,7 @@ func (s *ReportStep) GetRows(stepIndex int) []builderRow {
 			rows = append(rows, builderRow{Type: rowSpacer, StepIndex: stepIndex, TargetIndex: -1, Field: "EditOnlySpacer"})
 		}
 
-		rptURLabel := "url"
-		if ttype == "minion" {
-			rptURLabel = "minion"
-		}
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportType", Label: "type", Value: ttype})
-		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportURL", Label: rptURLabel, Value: url})
+		rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportURL", Label: ttype, Value: url})
 
 		switch ttype {
 		case "ntfy":

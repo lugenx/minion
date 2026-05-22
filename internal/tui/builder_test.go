@@ -375,8 +375,8 @@ func TestTellStep_LabelMinion(t *testing.T) {
 		}
 		if r.Field == "TellURL" && r.TargetIndex == 1 {
 			foundNtfy = true
-			if r.Label != "url" {
-				t.Errorf("expected label 'url' for ntfy-type target, got %q", r.Label)
+			if r.Label != "ntfy" {
+				t.Errorf("expected label 'ntfy' for ntfy-type target, got %q", r.Label)
 			}
 		}
 	}
@@ -572,21 +572,38 @@ func TestTellStep_AddArrayItem_CursorTarget(t *testing.T) {
 		},
 	}
 
-	// The update.go handler sets targetField to "TellType" for "Tell" field
-	// Verify that TellType field exists in GetRows for a fresh target
+	// A fresh empty target has no type key, so TellURL label should be empty
 	step.AddArrayItem("Tell")
 	rows := step.GetRows(0)
 
-	// The newest target (index 1) should have a TellType field
-	hasTellType := false
+	hasEmptyLabel := false
 	for _, r := range rows {
-		if r.Field == "TellType" && r.TargetIndex == 1 {
-			hasTellType = true
+		if r.Field == "TellURL" && r.TargetIndex == 1 {
+			if r.Label == "" {
+				hasEmptyLabel = true
+			}
 			break
 		}
 	}
-	if !hasTellType {
-		t.Error("expected TellType field for newly added target (cursor should land there)")
+	if !hasEmptyLabel {
+		t.Error("expected TellURL field with empty label for fresh target (no type set)")
+	}
+
+	// After setting the type, the TellURL label should show the type
+	step.Targets[1]["discord"] = ""
+	rows = step.GetRows(0)
+	found := false
+	for _, r := range rows {
+		if r.Field == "TellURL" && r.TargetIndex == 1 {
+			found = true
+			if r.Label != "discord" {
+				t.Errorf("expected label 'discord', got %q", r.Label)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("expected TellURL field after setting type on new target")
 	}
 }
 

@@ -202,17 +202,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								append([]Step{newStep}, m.builderData.Steps[insertIdx:]...)...)
 							m.refreshBuilderRows()
 							
-							// Auto-focus the first field of the newly added step
 							m.editMode = false
 							m.addStepMode = false
 							m.textInput.Blur()
 							
 							targetStepIndex := insertIdx
+							focused := false
+
+							// Try rowStepField first
 							for i, r := range m.builderRows {
 								if r.Type == rowStepField && r.StepIndex == targetStepIndex {
 									m.builderCursor = i
-									
-									// Automatically enter edit mode for this field
 									if r.Field == "DoTask" {
 										m.editMode = true
 										m.textArea.SetValue(r.Value)
@@ -226,7 +226,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 										m.textInput.Focus()
 										cmds = append(cmds, textinput.Blink)
 									}
+									focused = true
 									break
+								}
+							}
+							if !focused {
+								// Fallback to rowStepHeader (When, Do, Keep, Ignore)
+								for i, r := range m.builderRows {
+									if r.Type == rowStepHeader && r.StepIndex == targetStepIndex && r.Field != "" {
+										m.builderCursor = i
+										if r.Field == "DoTask" {
+											m.editMode = true
+											m.textArea.SetValue(r.Value)
+											m.textArea.Focus()
+											cmds = append(cmds, textarea.Blink)
+										} else if r.Field == "KeepWords" || r.Field == "IgnoreWords" {
+											m.editMode = true
+											m.textInput.Reset()
+											m.textInput.Prompt = "(comma separated)> "
+											m.textInput.SetValue(r.Value)
+											m.textInput.Focus()
+											cmds = append(cmds, textinput.Blink)
+										} else {
+											m.editMode = true
+											m.textInput.Reset()
+											m.textInput.Prompt = "> "
+											m.textInput.SetValue(r.Value)
+											m.textInput.Focus()
+											cmds = append(cmds, textinput.Blink)
+										}
+										focused = true
+										break
+									}
+								}
+							}
+							if !focused {
+								// Fallback to add sub-item button (Tell, Report with no targets)
+								for i, r := range m.builderRows {
+									if r.Type == rowAddSubItem && r.StepIndex == targetStepIndex {
+										m.builderCursor = i
+										focused = true
+										break
+									}
 								}
 							}
 						} else {
@@ -246,7 +287,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			if m.addSubItemField != "" {
 					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
-						sugs := []string{"url", "search", "minion", "command"}
+						var allSugs []string
+						if m.addSubItemField == "From" {
+							allSugs = []string{"url", "search", "minion", "command"}
+						} else {
+							allSugs = []string{"ntfy", "discord", "http_request", "minion"}
+						}
+						input := strings.ToLower(strings.TrimSpace(m.textInput.Value()))
+						var sugs []string
+						for _, s := range allSugs {
+							if strings.HasPrefix(s, input) {
+								sugs = append(sugs, s)
+							}
+						}
 						if len(sugs) > 0 {
 							m.textInput.SetValue(sugs[0])
 							m.textInput.SetCursor(len(sugs[0]))
@@ -262,34 +315,77 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if keyMsg, ok := msg.(tea.KeyMsg); ok {
 						if key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))) {
 							val := strings.ToLower(strings.TrimSpace(m.textInput.Value()))
-							if val != "url" && val != "search" && val != "minion" && val != "command" {
+
+							var allSugs []string
+							if m.addSubItemField == "From" {
+								allSugs = []string{"url", "search", "minion", "command"}
+							} else {
+								allSugs = []string{"ntfy", "discord", "http_request", "minion"}
+							}
+							matched := ""
+							for _, s := range allSugs {
+								if s == val {
+									matched = s
+									break
+								}
+								if matched == "" && strings.HasPrefix(s, val) {
+									matched = s
+								}
+							}
+							if matched == "" {
 								m.syncBuilderViewport()
 								return m, tea.Batch(cmds...)
 							}
-							step := m.builderData.Steps[m.addSubItemIdx]
-							if val == "url" {
-								step.AddArrayItem("FromURL")
-							} else if val == "search" {
-								step.AddArrayItem("FromSearch")
-							} else if val == "command" {
-								step.AddArrayItem("FromCommand")
-							} else {
-								step.AddArrayItem("FromMinion")
-							}
-							fromStep := m.builderData.Steps[m.addSubItemIdx].(*FromStep)
-							m.refreshBuilderRows()
+							val = matched
 
-							newTargetIdx := len(fromStep.Sources) - 1
-							for i, r := range m.builderRows {
-								if r.StepIndex == m.addSubItemIdx && r.TargetIndex == newTargetIdx && r.Type == rowStepField {
-									m.builderCursor = i
-									m.editMode = true
-									m.textInput.Reset()
-									m.textInput.Prompt = "> "
-									m.textInput.SetValue(r.Value)
-									m.textInput.Focus()
-									cmds = append(cmds, textinput.Blink)
-									break
+							if m.addSubItemField == "From" {
+								step := m.builderData.Steps[m.addSubItemIdx]
+								switch val {
+								case "url": step.AddArrayItem("FromURL")
+								case "search": step.AddArrayItem("FromSearch")
+								case "command": step.AddArrayItem("FromCommand")
+								default: step.AddArrayItem("FromMinion")
+								}
+								fromStep := m.builderData.Steps[m.addSubItemIdx].(*FromStep)
+								m.refreshBuilderRows()
+
+								newTargetIdx := len(fromStep.Sources) - 1
+								for i, r := range m.builderRows {
+									if r.StepIndex == m.addSubItemIdx && r.TargetIndex == newTargetIdx && r.Type == rowStepField {
+										m.builderCursor = i
+										m.editMode = true
+										m.textInput.Reset()
+										m.textInput.Prompt = "> "
+										m.textInput.SetValue(r.Value)
+										m.textInput.Focus()
+										cmds = append(cmds, textinput.Blink)
+										break
+									}
+								}
+							} else {
+								step := m.builderData.Steps[m.addSubItemIdx]
+								step.AddArrayItem(m.addSubItemField)
+								var newTargetIdx int
+								if tellStep, ok := step.(*TellStep); ok {
+									newTargetIdx = len(tellStep.Targets) - 1
+									tellStep.Targets[newTargetIdx][val] = ""
+								} else if reportStep, ok := step.(*ReportStep); ok {
+									newTargetIdx = len(reportStep.Targets) - 1
+									reportStep.Targets[newTargetIdx][val] = ""
+								}
+								m.refreshBuilderRows()
+
+								for i, r := range m.builderRows {
+									if r.StepIndex == m.addSubItemIdx && r.TargetIndex == newTargetIdx && r.Type == rowStepField {
+										m.builderCursor = i
+										m.editMode = true
+										m.textInput.Reset()
+										m.textInput.Prompt = "> "
+										m.textInput.SetValue(r.Value)
+										m.textInput.Focus()
+										cmds = append(cmds, textinput.Blink)
+										break
+									}
 								}
 							}
 							m.addSubItemField = ""
@@ -576,6 +672,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.textInput.Prompt = "Source type (url/search): "
 						m.textInput.Focus()
 						cmds = append(cmds, textinput.Blink)
+					} else if row.Field == "Tell" || row.Field == "Report" {
+						m.addSubItemIdx = row.StepIndex
+						m.addSubItemField = row.Field
+						m.editMode = true
+						m.textInput.Reset()
+						m.textInput.Prompt = "Target type (ntfy/discord/http_request/minion): "
+						m.textInput.Focus()
+						cmds = append(cmds, textinput.Blink)
 					} else {
 						step := m.builderData.Steps[row.StepIndex]
 						step.AddArrayItem(row.Field)
@@ -597,10 +701,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								targetField = "FilterKeep"
 							} else if row.Field == "FilterAddDrop" {
 								targetField = "FilterDrop"
-							} else if row.Field == "Tell" {
-								targetField = "TellType"
-							} else if row.Field == "Report" {
-								targetField = "ReportType"
 							}
 
 							if targetField != "" {
