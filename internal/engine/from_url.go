@@ -204,7 +204,7 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 
 			currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 
-			systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
+			systemPrompt := "You are a web page analyzer. Your job is to read the provided web page content and fulfill the user's task.\n\n"
 			systemPrompt += fmt.Sprintf("CRITICAL TEMPORAL CONTEXT:\nToday's date and time is %s. Use this as your reference point for any time-based rules in the user's task.\n\n", currentDate)
 			systemPrompt += "--- USER TASK START ---\n"
 			systemPrompt += minion.Do + "\n"

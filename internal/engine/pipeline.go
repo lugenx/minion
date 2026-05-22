@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -281,6 +282,78 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 	return nil
 }
 
+func ProcessChainTrigger(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext) error {
+	_ = runCtx.Store.MarkJobActive(minion.Filename)
+	defer runCtx.Store.MarkJobDone(minion.Filename)
+	defer func() {
+		if runCtx.Browser != nil {
+			_ = runCtx.Browser.Close()
+			runCtx.Browser = nil
+		}
+		if runCtx.Launcher != nil {
+			runCtx.Launcher.Cleanup()
+			runCtx.Launcher = nil
+		}
+	}()
+
+	step := func(s, details string, isError bool) {
+		if runCtx.OnStep != nil {
+			runCtx.OnStep(s, details, isError)
+		}
+	}
+
+	step("start", fmt.Sprintf("%s (chain)", minion.Name), false)
+
+	if runCtx.Stats == nil {
+		runCtx.Stats = &Stats{StartTime: time.Now()}
+	}
+
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		itemJSON, parentName, ok, err := runCtx.Store.DequeueChainData(minion.Filename)
+		if err != nil {
+			runCtx.Stats.Errors++
+			step("error", fmt.Sprintf("chain dequeue: %v", err), true)
+			break
+		}
+		if !ok {
+			break
+		}
+
+		var item types.Item
+		if err := json.Unmarshal([]byte(itemJSON), &item); err != nil {
+			runCtx.Stats.Errors++
+			step("error", fmt.Sprintf("chain deserialize: %v", err), true)
+			continue
+		}
+		item.SourceType = "minion"
+
+		err = processMinionChain(ctx, minion, &item, runCtx, parentName)
+		if err != nil {
+			runCtx.Stats.Errors++
+			step("error", fmt.Sprintf("chain: %v", err), true)
+		}
+	}
+
+	runCtx.Stats.EndTime = time.Now()
+
+	if len(minion.Report) > 0 {
+		reportText := runCtx.Stats.GenerateReport(minion.Name)
+		reportItem := types.Item{
+			Title:   fmt.Sprintf("Mission Report: %s", minion.Name),
+			Summary: reportText,
+		}
+		step("report", "delivered", false)
+		deliverTargets(ctx, minion, runCtx, []types.Item{reportItem}, minion.Report, false)
+	}
+
+	step("done", minion.Name, false)
+	return nil
+}
+
 func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.Item, runCtx *RunContext, parentName string) error {
 	switch item.SourceType {
 	case "do":
@@ -436,15 +509,21 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 					runCtx.Stats.Errors++
 					step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
 				} else {
-					chainItem := m
-					chainItem.SourceType = "minion"
-					err = ProcessItem(ctx, targetMinion, &chainItem, runCtx, minion.Filename)
-					if err != nil {
+					itemJSON, marshalErr := json.Marshal(m)
+					if marshalErr != nil {
 						runCtx.Stats.Errors++
-						step("tell", fmt.Sprintf("→ minion `%s`: %v", targetMinionName, err), true)
+						step("tell", fmt.Sprintf("→ minion `%s`: serialize error: %v", targetMinionName, marshalErr), true)
 					} else {
-						if saveHash {
-							runCtx.Stats.Sent++
+						qErr := runCtx.Store.EnqueueChainData(targetMinion.Filename, string(itemJSON), minion.Filename)
+						if qErr != nil {
+							runCtx.Stats.Errors++
+							step("tell", fmt.Sprintf("→ minion `%s`: queue error: %v", targetMinionName, qErr), true)
+						} else {
+							_ = runCtx.Store.QueueRun(targetMinion.Filename)
+							if saveHash {
+								runCtx.Stats.Sent++
+							}
+							step("tell", fmt.Sprintf("→ minion `%s` (queued)", targetMinionName), false)
 						}
 					}
 				}

@@ -485,6 +485,115 @@ func TestProcessMinionChain_KeepFilter(t *testing.T) {
 	}
 }
 
+func TestProcessMinionChain_Authorized_WithExtensionMatch(t *testing.T) {
+	// When parentName has .yaml but source.Minion does not, should match after fix
+	s := setupTestStore(t)
+	runCtx := setupTestRunCtx(s)
+	m := &config.MinionConfig{
+		Name:     "target",
+		Filename: "target.yaml",
+		From:     []config.Source{{Minion: "daddy"}}, // no .yaml
+		Do:       "extract something",
+		Settings: config.Settings{Model: "test-model"},
+	}
+
+	item := &types.Item{
+		ID:         "chain-id",
+		SourceType: "minion",
+		Text:       "some content",
+	}
+
+	// parentName "daddy.yaml" should match source.Minion "daddy" after normalization
+	err := processMinionChain(context.Background(), m, item, runCtx, "daddy.yaml")
+	if err != nil {
+		t.Fatalf("expected nil (authorized should pass), got: %v", err)
+	}
+}
+
+func TestProcessMinionChain_Authorized_WithExactMatch(t *testing.T) {
+	// When both parentName and source.Minion are without .yaml, should still match
+	s := setupTestStore(t)
+	runCtx := setupTestRunCtx(s)
+	m := &config.MinionConfig{
+		Name:     "target",
+		Filename: "target.yaml",
+		From:     []config.Source{{Minion: "daddy"}}, // no .yaml
+	}
+
+	item := &types.Item{
+		ID:         "chain-id",
+		SourceType: "minion",
+	}
+
+	err := processMinionChain(context.Background(), m, item, runCtx, "daddy")
+	if err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+}
+
+func TestProcessMinionChain_Authorized_WithBothExtensions(t *testing.T) {
+	// When both have .yaml, should still match
+	s := setupTestStore(t)
+	runCtx := setupTestRunCtx(s)
+	m := &config.MinionConfig{
+		Name:     "target",
+		Filename: "target.yaml",
+		From:     []config.Source{{Minion: "daddy.yaml"}}, // with .yaml
+	}
+
+	item := &types.Item{
+		ID:         "chain-id",
+		SourceType: "minion",
+	}
+
+	err := processMinionChain(context.Background(), m, item, runCtx, "daddy.yaml")
+	if err != nil {
+		t.Fatalf("expected nil, got: %v", err)
+	}
+}
+
+func TestProcessMinionChain_Unauthorized(t *testing.T) {
+	// Different parentName should be rejected
+	s := setupTestStore(t)
+	runCtx := setupTestRunCtx(s)
+	m := &config.MinionConfig{
+		Name:     "target",
+		Filename: "target.yaml",
+		From:     []config.Source{{Minion: "allowed_parent"}},
+	}
+
+	item := &types.Item{
+		ID:         "chain-id",
+		SourceType: "minion",
+	}
+
+	err := processMinionChain(context.Background(), m, item, runCtx, "unknown_parent")
+	if err != nil {
+		t.Fatalf("expected nil (rejection is non-fatal), got: %v", err)
+	}
+}
+
+func TestProcessMinionChain_Authorized_WithYmlExtension(t *testing.T) {
+	// .yml extension should also be stripped
+	s := setupTestStore(t)
+	runCtx := setupTestRunCtx(s)
+	m := &config.MinionConfig{
+		Name:     "target",
+		Filename: "target.yaml",
+		From:     []config.Source{{Minion: "daddy"}},
+	}
+
+	item := &types.Item{
+		ID:         "chain-id",
+		SourceType: "minion",
+	}
+
+	err := processMinionChain(context.Background(), m, item, runCtx, "daddy.yml")
+	if err != nil {
+		t.Fatalf("expected nil (.yml should be stripped), got: %v", err)
+	}
+}
+
 func TestProcessItem_Dispatcher(t *testing.T) {
 	s := setupTestStore(t)
 	runCtx := setupTestRunCtx(s)

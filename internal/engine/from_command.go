@@ -174,7 +174,7 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 
 			currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 
-			systemP := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
+			systemP := "You are a command output analyzer. Your job is to read the provided shell command output and fulfill the user's task.\n\n"
 			systemP += fmt.Sprintf("CRITICAL TEMPORAL CONTEXT:\nToday's date and time is %s. Use this as your reference point for any time-based rules in the user's task.\n\n", currentDate)
 			systemP += fmt.Sprintf("CONTEXT:\n  Exit code: %d\n\n", exitCode)
 			systemP += "--- USER TASK START ---\n"
@@ -196,7 +196,7 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
   ]
 }`
 
-			userMessage := fmt.Sprintf("--- COMMAND: %s (exit code: %d) ---\n\n", command, exitCode)
+			userMessage := fmt.Sprintf("--- COMMAND: %s ---\n\n", command)
 			userMessage += content
 
 			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)

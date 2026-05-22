@@ -33,8 +33,9 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 
 	if parentName != "" && parentName != "cron" {
 		authorized := false
+		normalizedParent := strings.TrimSuffix(strings.TrimSuffix(parentName, ".yaml"), ".yml")
 		for _, source := range minion.From {
-			if source.Minion != "" && parentName == source.Minion {
+			if source.Minion != "" && normalizedParent == source.Minion {
 				authorized = true
 				break
 			}
@@ -145,8 +146,18 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 
 			content := m.Text
 			if content == "" {
+				var parts []string
+				if m.Title != "" {
+					parts = append(parts, "Title: "+m.Title)
+				}
+				if m.Summary != "" {
+					parts = append(parts, "Summary: "+m.Summary)
+				}
 				if m.URL != "" {
-					content = "URL: " + m.URL
+					parts = append(parts, "URL: "+m.URL)
+				}
+				if len(parts) > 0 {
+					content = strings.Join(parts, "\n")
 				} else {
 					content = minion.Do
 				}
@@ -167,7 +178,7 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 
 			currentDate := time.Now().Format("Monday, January 2, 2006 at 15:04 MST")
 
-			systemPrompt := "You are an autonomous extraction engine. Your job is to read the provided text and fulfill the user's task.\n\n"
+			systemPrompt := "You are a data processor. Your job is to read the received data and fulfill the user's task.\n\n"
 			systemPrompt += fmt.Sprintf("CRITICAL TEMPORAL CONTEXT:\nToday's date and time is %s. Use this as your reference point for any time-based rules in the user's task.\n\n", currentDate)
 			systemPrompt += "--- USER TASK START ---\n"
 			systemPrompt += minion.Do + "\n"
@@ -194,6 +205,8 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 			userMessage := ""
 			if m.URL != "" {
 				userMessage += fmt.Sprintf("--- SOURCE: %s ---\n\n", m.URL)
+			} else if content != minion.Do {
+				userMessage += "--- RECEIVED DATA ---\n\n"
 			}
 			userMessage += content
 

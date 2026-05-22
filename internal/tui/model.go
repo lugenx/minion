@@ -211,6 +211,8 @@ func generateBuilderRows(data *builderData) []builderRow {
 	
 	rows = append(rows, builderRow{Type: rowName, StepIndex: -1, TargetIndex: -1, Field: "Name", Label: "name", Value: data.Name})
 	rows = append(rows, builderRow{Type: rowEnabled, StepIndex: -1, TargetIndex: -1, Field: "Enabled", Label: "enabled", Value: fmt.Sprintf("%t", data.Enabled)})
+
+	rows = append(rows, builderRow{Type: rowAddStep, StepIndex: -2, TargetIndex: -1, Label: "[ + Add Step ]"})
 	
 	for i, step := range data.Steps {
 		header := builderRow{Type: rowStepHeader, StepIndex: i, TargetIndex: -1, Label: string(step.Type())}
@@ -238,9 +240,6 @@ func generateBuilderRows(data *builderData) []builderRow {
 
 		rows = append(rows, builderRow{Type: rowDeleteStep, StepIndex: i, TargetIndex: -1, Label: "[ - Delete Step ]"})
 		rows = append(rows, builderRow{Type: rowAddStep, StepIndex: i, TargetIndex: -1, Label: "[ + Add Step ]"})
-	}
-	if len(data.Steps) == 0 {
-		rows = append(rows, builderRow{Type: rowAddStep, StepIndex: -1, TargetIndex: -1, Label: "[ + Add Step ]"})
 	}
 	return rows
 }

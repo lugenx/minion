@@ -507,7 +507,7 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 				rows:      []builderRow{row},
 			})
 		default:
-			if row.StepIndex == -1 {
+			if row.StepIndex == -1 || row.StepIndex == -2 {
 				infoRows = append(infoRows, row)
 			} else if len(stepGroups) > 0 {
 				stepGroups[len(stepGroups)-1].rows = append(stepGroups[len(stepGroups)-1].rows, row)
@@ -777,6 +777,40 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 	out.WriteString("\n" + headerStyle.Render("mission") + "\n")
 	out.WriteString(borderStyle.Render(strings.Repeat("─", cardW)) + "\n")
 
+	if isEditMode {
+		for _, row := range infoRows {
+			if row.Type == rowAddStep && row.StepIndex == -2 {
+				cursorOnThis := m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&
+					m.builderRows[m.builderCursor].Type == rowAddStep &&
+					m.builderRows[m.builderCursor].StepIndex == -2
+
+				if m.addStepMode && cursorOnThis {
+					out.WriteString(fmt.Sprintf("  %s\n", m.textInput.View()))
+					sugs, _ := getSuggestions(true, "", "", m.textInput.Value())
+					if len(sugs) > 0 {
+						for j, s := range sugs {
+							if j == 0 {
+								out.WriteString(fmt.Sprintf("    %s\n", lipgloss.NewStyle().Foreground(colorAccent).Render(s)))
+							} else {
+								out.WriteString(fmt.Sprintf("    %s\n", mutedStyle.Render(s)))
+							}
+						}
+					}
+				} else {
+					btnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+					prefix := "  "
+					if cursorOnThis {
+						btnStyle = selectedStyle
+						prefix = "  > "
+					}
+					out.WriteString(fmt.Sprintf("%s%s\n", prefix, btnStyle.Render(row.Label)))
+				}
+				out.WriteString("  " + cardSepStyle.Render("│") + "\n")
+				break
+			}
+		}
+	}
+
 	for gi, group := range stepGroups {
 		if gi > 0 {
 			conn := cardSepStyle.Render("│")
@@ -906,7 +940,7 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 	}
 
 	for _, row := range infoRows {
-		if row.Type != rowAddStep || !isEditMode {
+		if row.Type != rowAddStep || row.StepIndex == -2 || !isEditMode {
 			continue
 		}
 		cursorOnThis := m.builderCursor >= 0 && m.builderCursor < len(m.builderRows) &&

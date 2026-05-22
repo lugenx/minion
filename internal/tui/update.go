@@ -195,6 +195,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						
 						if newStep != nil {
 							insertIdx := m.builderRows[m.builderCursor].StepIndex + 1
+							if m.builderRows[m.builderCursor].StepIndex == -2 {
+								insertIdx = 0
+							}
 							m.builderData.Steps = append(m.builderData.Steps[:insertIdx],
 								append([]Step{newStep}, m.builderData.Steps[insertIdx:]...)...)
 							m.refreshBuilderRows()
@@ -595,9 +598,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							} else if row.Field == "FilterAddDrop" {
 								targetField = "FilterDrop"
 							} else if row.Field == "Tell" {
-								targetField = "TellURL"
+								targetField = "TellType"
 							} else if row.Field == "Report" {
-								targetField = "ReportURL"
+								targetField = "ReportType"
 							}
 
 							if targetField != "" {

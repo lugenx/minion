@@ -349,4 +349,245 @@ func TestInitBuilderData_FromSources(t *testing.T) {
 	}
 }
 
+func TestTellStep_LabelMinion(t *testing.T) {
+	// When tell target type is "minion", label should be "minion" not "url"
+	step := &TellStep{
+		Targets: []map[string]interface{}{
+			{"minion": "worker"},
+			{"ntfy": "https://ntfy.sh/topic"},
+		},
+	}
+
+	rows := step.GetRows(0)
+
+	// First target: minion type → label "minion"
+	foundMinion := false
+	foundNtfy := false
+	for _, r := range rows {
+		if r.Field == "TellURL" && r.TargetIndex == 0 {
+			foundMinion = true
+			if r.Label != "minion" {
+				t.Errorf("expected label 'minion' for minion-type target, got %q", r.Label)
+			}
+			if r.Value != "worker" {
+				t.Errorf("expected value 'worker', got %q", r.Value)
+			}
+		}
+		if r.Field == "TellURL" && r.TargetIndex == 1 {
+			foundNtfy = true
+			if r.Label != "url" {
+				t.Errorf("expected label 'url' for ntfy-type target, got %q", r.Label)
+			}
+		}
+	}
+	if !foundMinion {
+		t.Error("missing TellURL field for minion target")
+	}
+	if !foundNtfy {
+		t.Error("missing TellURL field for ntfy target")
+	}
+}
+
+func TestTellStep_AddArrayItem_LandsOnType(t *testing.T) {
+	// After AddArrayItem, new target should have no type key (empty type field)
+	step := &TellStep{
+		Targets: []map[string]interface{}{
+			{"ntfy": "https://ntfy.sh/topic"},
+		},
+	}
+
+	step.AddArrayItem("Tell")
+	if len(step.Targets) != 2 {
+		t.Fatalf("expected 2 targets after AddArrayItem, got %d", len(step.Targets))
+	}
+
+	// The new target should be an empty map (no type key)
+	newTarget := step.Targets[1]
+	if len(newTarget) != 0 {
+		t.Errorf("expected empty map for new target, got %v", newTarget)
+	}
+
+	// After setting type, Verify UpdateField sets it correctly
+	err := step.UpdateField("TellType", 1, "minion")
+	if err != nil {
+		t.Fatalf("UpdateField failed: %v", err)
+	}
+	if _, ok := step.Targets[1]["minion"]; !ok {
+		t.Errorf("expected minion key to be set in target after UpdateField")
+	}
+}
+
+func TestReportStep_LabelMinion(t *testing.T) {
+	step := &ReportStep{
+		Targets: []map[string]interface{}{
+			{"minion": "worker"},
+		},
+	}
+
+	rows := step.GetRows(0)
+	found := false
+	for _, r := range rows {
+		if r.Field == "ReportURL" && r.TargetIndex == 0 {
+			found = true
+			if r.Label != "minion" {
+				t.Errorf("expected label 'minion' for minion-type report target, got %q", r.Label)
+			}
+		}
+	}
+	if !found {
+		t.Error("missing ReportURL field for minion report target")
+	}
+}
+
+func TestGenerateBuilderRows_AddStepOnTop(t *testing.T) {
+	data := &builderData{
+		Name:    "test",
+		Enabled: true,
+		Steps: []Step{
+			&WhenStep{When: "every 5m"},
+			&DoStep{Do: "test task"},
+		},
+	}
+
+	rows := generateBuilderRows(data)
+
+	// First two rows should be Name and Enabled
+	if len(rows) < 3 {
+		t.Fatalf("expected at least 3 rows, got %d", len(rows))
+	}
+	if rows[0].Type != rowName {
+		t.Errorf("row[0] should be rowName, got %v", rows[0].Type)
+	}
+	if rows[1].Type != rowEnabled {
+		t.Errorf("row[1] should be rowEnabled, got %v", rows[1].Type)
+	}
+
+	// Third row should be the top "Add Step" button with StepIndex -2
+	if rows[2].Type != rowAddStep {
+		t.Errorf("row[2] should be rowAddStep, got %v", rows[2].Type)
+	}
+	if rows[2].StepIndex != -2 {
+		t.Errorf("row[2] StepIndex should be -2 (add on top), got %d", rows[2].StepIndex)
+	}
+	if rows[2].Label != "[ + Add Step ]" {
+		t.Errorf("row[2] Label should be '[ + Add Step ]', got %q", rows[2].Label)
+	}
+
+	// After the first step, there should be another AddStep with StepIndex 0
+	foundAfterStep0 := false
+	for _, r := range rows {
+		if r.Type == rowAddStep && r.StepIndex == 0 {
+			foundAfterStep0 = true
+			break
+		}
+	}
+	if !foundAfterStep0 {
+		t.Error("expected rowAddStep with StepIndex 0 (after step 0)")
+	}
+
+	// After the second step, there should be another AddStep with StepIndex 1
+	foundAfterStep1 := false
+	for _, r := range rows {
+		if r.Type == rowAddStep && r.StepIndex == 1 {
+			foundAfterStep1 = true
+			break
+		}
+	}
+	if !foundAfterStep1 {
+		t.Error("expected rowAddStep with StepIndex 1 (after step 1)")
+	}
+}
+
+func TestGenerateBuilderRows_AddStepOnTop_NoSteps(t *testing.T) {
+	data := &builderData{
+		Name:    "test",
+		Enabled: true,
+	}
+
+	rows := generateBuilderRows(data)
+
+	// When no steps, should still have a top AddStep button
+	foundTop := false
+	for _, r := range rows {
+		if r.Type == rowAddStep {
+			foundTop = true
+			if r.StepIndex != -2 {
+				t.Errorf("expected StepIndex -2 for top add step, got %d", r.StepIndex)
+			}
+			break
+		}
+	}
+	if !foundTop {
+		t.Error("expected rowAddStep in empty steps case")
+	}
+}
+
+func TestGenerateBuilderRows_StepOrder(t *testing.T) {
+	// Verify steps appear in correct order with proper StepIndex values
+	data := &builderData{
+		Name:    "test",
+		Enabled: true,
+		Steps: []Step{
+			&WhenStep{When: "every 5m"},
+			&DoStep{Do: "task"},
+			&TellStep{Targets: []map[string]interface{}{{"ntfy": "topic"}}},
+		},
+	}
+
+	rows := generateBuilderRows(data)
+
+	// Collect all StepHeader rows to verify step ordering
+	var headers []int
+	for _, r := range rows {
+		if r.Type == rowStepHeader {
+			headers = append(headers, r.StepIndex)
+		}
+	}
+	if len(headers) != 3 {
+		t.Fatalf("expected 3 step headers, got %d", len(headers))
+	}
+	if headers[0] != 0 || headers[1] != 1 || headers[2] != 2 {
+		t.Errorf("step headers should be [0,1,2], got %v", headers)
+	}
+
+	// Verify AddStep after each step
+	expectedAddStepIndices := map[int]bool{-2: true, 0: true, 1: true, 2: true}
+	for _, r := range rows {
+		if r.Type == rowAddStep {
+			if !expectedAddStepIndices[r.StepIndex] {
+				t.Errorf("unexpected rowAddStep with StepIndex %d", r.StepIndex)
+			}
+			delete(expectedAddStepIndices, r.StepIndex)
+		}
+	}
+	if len(expectedAddStepIndices) > 0 {
+		t.Errorf("missing rowAddStep entries for indices: %v", expectedAddStepIndices)
+	}
+}
+
+func TestTellStep_AddArrayItem_CursorTarget(t *testing.T) {
+	step := &TellStep{
+		Targets: []map[string]interface{}{
+			{"ntfy": "https://ntfy.sh/topic"},
+		},
+	}
+
+	// The update.go handler sets targetField to "TellType" for "Tell" field
+	// Verify that TellType field exists in GetRows for a fresh target
+	step.AddArrayItem("Tell")
+	rows := step.GetRows(0)
+
+	// The newest target (index 1) should have a TellType field
+	hasTellType := false
+	for _, r := range rows {
+		if r.Field == "TellType" && r.TargetIndex == 1 {
+			hasTellType = true
+			break
+		}
+	}
+	if !hasTellType {
+		t.Error("expected TellType field for newly added target (cursor should land there)")
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }

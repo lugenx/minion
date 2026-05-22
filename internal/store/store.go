@@ -54,6 +54,13 @@ func InitStore(dbPath string) (*Store, error) {
 	CREATE TABLE IF NOT EXISTS abort_queue (
 		minion_filename TEXT PRIMARY KEY,
 		requested_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS chain_inbox (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_minion TEXT NOT NULL,
+		item_data TEXT NOT NULL,
+		parent_minion TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	_, err = db.Exec(createTableQuery)
@@ -277,6 +284,8 @@ func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	_, _ = s.db.Exec("DELETE FROM chain_inbox WHERE target_minion = ? OR parent_minion = ?", minionFilename, minionFilename)
+	_, _ = s.db.Exec("DELETE FROM run_queue WHERE minion_filename = ?", minionFilename)
 
 	count1, _ := res1.RowsAffected()
 	count2, _ := res2.RowsAffected()
@@ -284,19 +293,29 @@ func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 }
 
 func (s *Store) ClearAllState() (int64, error) {
-	res1, err := s.db.Exec("DELETE FROM scraped_pages")
-	if err != nil {
-		return 0, err
-	}
-	res2, err := s.db.Exec("DELETE FROM discarded_urls")
-	if err != nil {
-		return 0, err
-	}
-	_, _ = s.db.Exec("DELETE FROM active_jobs")
+	var total int64
 
-	count1, _ := res1.RowsAffected()
-	count2, _ := res2.RowsAffected()
-	return count1 + count2, nil
+	res, err := s.db.Exec("DELETE FROM scraped_pages")
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	total += n
+
+	res, err = s.db.Exec("DELETE FROM discarded_urls")
+	if err != nil {
+		return 0, err
+	}
+	n, _ = res.RowsAffected()
+	total += n
+
+	for _, table := range []string{"active_jobs", "abort_queue", "run_queue", "chain_inbox", "minion_status"} {
+		res, _ = s.db.Exec("DELETE FROM " + table)
+		n, _ = res.RowsAffected()
+		total += n
+	}
+
+	return total, nil
 }
 
 func (s *Store) ClearActiveJobs() error {
@@ -306,5 +325,88 @@ func (s *Store) ClearActiveJobs() error {
 
 func (s *Store) ClearAbortQueue() error {
 	_, err := s.db.Exec("DELETE FROM abort_queue")
+	return err
+}
+
+func (s *Store) ClearRunQueue() error {
+	_, err := s.db.Exec("DELETE FROM run_queue")
+	return err
+}
+
+func (s *Store) EnqueueChainData(targetMinion, itemData, parentMinion string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO chain_inbox (target_minion, item_data, parent_minion, created_at) VALUES (?, ?, ?, ?)",
+		targetMinion, itemData, parentMinion, time.Now(),
+	)
+	return err
+}
+
+func (s *Store) DequeueChainData(targetMinion string) (itemData, parentMinion string, ok bool, err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", "", false, err
+	}
+	defer tx.Rollback()
+
+	var id int64
+	err = tx.QueryRow(
+		"SELECT id, item_data, parent_minion FROM chain_inbox WHERE target_minion = ? ORDER BY id ASC LIMIT 1",
+		targetMinion,
+	).Scan(&id, &itemData, &parentMinion)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+
+	_, err = tx.Exec("DELETE FROM chain_inbox WHERE id = ?", id)
+	if err != nil {
+		return "", "", false, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", "", false, err
+	}
+	return itemData, parentMinion, true, nil
+}
+
+func (s *Store) GetChainDataMinions() ([]string, error) {
+	rows, err := s.db.Query("SELECT DISTINCT target_minion FROM chain_inbox ORDER BY MIN(id) ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []string
+	for rows.Next() {
+		var fn string
+		if err := rows.Scan(&fn); err == nil {
+			result = append(result, fn)
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) GetChainDataCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM chain_inbox").Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *Store) HasChainData(targetMinion string) (bool, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM chain_inbox WHERE target_minion = ?", targetMinion).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Store) ClearChainData() error {
+	_, err := s.db.Exec("DELETE FROM chain_inbox")
 	return err
 }

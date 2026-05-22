@@ -231,12 +231,16 @@ func runDaemon() {
 		case <-ticker.C:
 			syncFleet(daemonCtx, dbStore, c, scheduledJobs, activeCancels)
 			ranWork := processRunQueue(daemonCtx, dbStore, activeCancels)
+			if !ranWork {
+				processChainQueue(daemonCtx, dbStore, activeCancels)
+			}
 			processAbortQueue(dbStore, activeCancels)
-			
+
 			if !ranWork {
 				activeJobs, _ := dbStore.GetActiveJobs()
 				activeMinions, _ := dbStore.GetActiveMinions()
-				if len(activeJobs) == 0 && len(activeMinions) == 0 {
+				chainCount, _ := dbStore.GetChainDataCount()
+				if len(activeJobs) == 0 && len(activeMinions) == 0 && chainCount == 0 {
 					return
 				}
 			}
@@ -313,6 +317,24 @@ func processRunQueue(ctx context.Context, dbStore *store.Store, activeCancels *s
 		_ = dbStore.DequeueRun(filename)
 	}
 	return spawned
+}
+
+func processChainQueue(ctx context.Context, dbStore *store.Store, activeCancels *sync.Map) {
+	minions, err := dbStore.GetChainDataMinions()
+	if err != nil || len(minions) == 0 {
+		return
+	}
+	activeJobs, _ := dbStore.GetActiveJobs()
+	for _, fn := range minions {
+		if activeJobs[fn] {
+			continue
+		}
+		m, err := config.LoadMinion(fn)
+		if err != nil {
+			continue
+		}
+		go executeMinion(ctx, dbStore, m, "chain", activeCancels)
+	}
 }
 
 func processAbortQueue(dbStore *store.Store, activeCancels *sync.Map) {
@@ -438,8 +460,16 @@ func executeMinion(ctx context.Context, dbStore *store.Store, m *config.MinionCo
 		}, 
 	}
 
-	if err := engine.RunMission(runCtxTimeout, m, runCtx); err != nil {
-		logMessage("ERROR", m.Name, fmt.Sprintf("Failed: %v", err))
+	hasChain, _ := dbStore.HasChainData(m.Filename)
+	var runErr error
+	if hasChain || triggerType == "chain" {
+		runErr = engine.ProcessChainTrigger(runCtxTimeout, m, runCtx)
+	} else {
+		runErr = engine.RunMission(runCtxTimeout, m, runCtx)
+	}
+
+	if runErr != nil {
+		logMessage("ERROR", m.Name, fmt.Sprintf("Failed: %v", runErr))
 	} else {
 		statsMsg := fmt.Sprintf("Finished in %s (Fetched: %d, Unchanged: %d, Analyzed: %d, Discarded: %d, Skipped: %d, Results: %d, Sent: %d, Errors: %d)",
 			runCtx.Stats.Duration().Round(time.Millisecond*100),
