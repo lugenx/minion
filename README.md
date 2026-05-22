@@ -95,14 +95,14 @@ ignore:
 do: Find official release announcements for version 2.0 or higher.
 
 tell:
-  ntfy: https://ntfy.sh/mytopic
-  markdown: true
-  basic_auth:
-    username: "${NTFY_USER}"
-    password: "${NTFY_PASS}"
+  - ntfy: https://ntfy.sh/mytopic
+    markdown: true
+    basic_auth:
+      username: "${NTFY_USER}"
+      password: "${NTFY_PASS}"
 
 report:
-  ntfy: https://ntfy.sh/mytopic
+  - ntfy: https://ntfy.sh/mytopic
 
 settings:
   timeout: 15
@@ -111,7 +111,7 @@ settings:
 ```
 
 ### 3. Run It
-Press `space` on a minion to schedule it (the daemon starts automatically), or press `r` to run it once immediately.
+Press `space` on a minion to turn it on, or press `r` to run it once immediately.
 
 ### 4. Watch It Work
 Press `l` to see live step-by-step logs as the minion runs.
@@ -119,13 +119,13 @@ Press `l` to see live step-by-step logs as the minion runs.
 ### 5. CLI Commands
 
 *   **`minion`** - Launches the TUI.
-*   **`minion up [filename|all]`** - Schedules a minion. Starts the daemon if needed.
-*   **`minion down [filename|all]`** - Unschedules a minion. With no args, stops the daemon.
+*   **`minion up <filename|all>`** - Activates a minion.
+*   **`minion down [filename|all]`** - Deactivates a minion.
 *   **`minion run <filename>`** - Queues a minion for immediate execution.
 *   **`minion stop <filename>`** - Aborts a running minion.
 *   **`minion ls`** - Lists all minions with their state and schedule.
 *   **`minion log [filename]`** - Follows live logs.
-*   **`minion clear <filename>`** - Wipes a minion's memory so it re-evaluates seen items.
+*   **`minion clear <filename|--all>`** - Wipes a minion's memory so it re-evaluates seen items.
 
 ---
 
@@ -161,7 +161,7 @@ from:
 ```
 
 ### keep / ignore (Content Filtering)
-LLM calls cost money. These do a case-insensitive substring match on the full scraped page content, title, summary, and URL. Use them to drop irrelevant pages before the LLM call.
+LLM calls cost money. These filter pages before the AI analysis using your keywords. Use them to drop irrelevant pages before the LLM call.
 
 **ANY** logic: if multiple words are listed, a match on any one triggers the rule. `ignore` is evaluated first — if an ignore word matches, the item is discarded even if it also matches a keep word.
 
@@ -187,20 +187,20 @@ Minion POSTs summaries to any URL. It supports env var expansion so you never ha
 
 ```yaml
 tell:
-  ntfy: https://ntfy.sh/mytopic
-  markdown: true
-  basic_auth:
-    username: "${NTFY_USER}"
-    password: "${NTFY_PASS}"
+  - ntfy: https://ntfy.sh/mytopic
+    markdown: true
+    basic_auth:
+      username: "${NTFY_USER}"
+      password: "${NTFY_PASS}"
 
-  # discord: https://discord.com/api/webhooks/...
+  # - discord: https://discord.com/api/webhooks/...
 
-  # http_request: https://notify.example.com/alerts
-  # method: POST
-  # headers:
-  #   X-Priority: High
-  # payload_template: |
-  #   {"title": "{{.Title}}", "body": "{{.Summary}}"}
+  # - http_request: https://notify.example.com/alerts
+  #   method: POST
+  #   headers:
+  #     X-Priority: High
+  #   payload_template: |
+  #     {"title": "{{.Title}}", "body": "{{.Summary}}"}
 ```
 
 ### report (Mission Report)
@@ -208,7 +208,7 @@ Sends a summary of the run (duration, items found, cost) using the same routing 
 
 ```yaml
 report:
-  ntfy: https://ntfy.sh/my-logs
+  - ntfy: https://ntfy.sh/my-logs
 ```
 
 **Example output:**
@@ -220,11 +220,14 @@ End:    14:30:04
 Time:   4.2s
 Errors: 0
 
-- Search Results: 5 links
-- Scraped:        5 pages
-- Studied:        1 pages
-- Found:          2 items
-- Delivered:      2 items
+  Fetched:      5
+  Unchanged:    0
+  Analyzed:     1
+  Discarded:    0
+  Skipped:      0
+
+  Results:      2
+  Sent:         2
 
 Cost:   $0.0012
 ```
@@ -250,7 +253,7 @@ Minions can hand data to other minions. This is useful for splitting work — on
 **Sending minion** uses the target's filename:
 ```yaml
 tell:
-  minion: event_reader
+  - minion: event_reader
 ```
 
 **Receiving minion** uses `from` with the `minion` source:

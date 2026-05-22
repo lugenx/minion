@@ -629,7 +629,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.addStepMode = true
 					m.editMode = true
 					m.textInput.Reset()
-					m.textInput.Prompt = "Block type (when/from/do/keep/ignore/tell/settings): "
+					m.textInput.Prompt = "Step type: "
 					m.textInput.Focus()
 					cmds = append(cmds, textinput.Blink)
 				case keyMsg.String() == "s":
@@ -643,7 +643,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addStepMode = true
 						m.editMode = true
 						m.textInput.Reset()
-						m.textInput.Prompt = "Block type (when/from/do/keep/ignore/tell/settings): "
+						m.textInput.Prompt = "Step type: "
 						m.textInput.Focus()
 						cmds = append(cmds, textinput.Blink)
 					} else if row.Type == rowEnabled {
