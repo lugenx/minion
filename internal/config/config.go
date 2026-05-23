@@ -337,10 +337,27 @@ func LoadMasks() error {
 	return nil
 }
 
+func ensureEnvVar(key, val string) {
+	data, err := os.ReadFile(EnvPath)
+	if err != nil {
+		return
+	}
+	if strings.Contains(string(data), key+"=") {
+		return
+	}
+	f, err := os.OpenFile(EnvPath, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString("\n# Set to false to disable the character art in TUI\n" + key + "=" + val + "\n")
+}
+
 func LoadEnv() error {
 	EnsureDirectories()
 	LoadMasks()
 	_ = godotenv.Load(EnvPath)
+	ensureEnvVar("MINION_CHARACTER", "true")
 	return nil
 }
 

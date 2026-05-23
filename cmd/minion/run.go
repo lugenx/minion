@@ -19,6 +19,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/cobra"
 
+	"minion/internal/character"
 	"minion/internal/config"
 	"minion/internal/engine"
 	"minion/internal/store"
@@ -466,6 +467,10 @@ func executeMinion(ctx context.Context, dbStore *store.Store, m *config.MinionCo
 		runErr = engine.ProcessChainTrigger(runCtxTimeout, m, runCtx)
 	} else {
 		runErr = engine.RunMission(runCtxTimeout, m, runCtx)
+	}
+
+	if runCtx.Stats != nil && character.Enabled() {
+		_ = dbStore.UpdateCharacterState(m.Filename, runCtx.Stats.Results, runCtx.Stats.Errors)
 	}
 
 	if runErr != nil {

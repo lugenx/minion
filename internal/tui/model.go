@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"minion/internal/character"
 	"minion/internal/config"
 	"minion/internal/store"
 )
@@ -90,6 +91,11 @@ type model struct {
 	textArea      textarea.Model
 
 	db *store.Store
+
+	characterStates map[string]character.Data
+	bosses          map[string][]string
+	workers         map[string][]string
+	focusFilename   string
 }
 
 type PublicModel interface {
@@ -144,6 +150,9 @@ func newModel() model {
 			builderViewport: bv,
 			db:              db,
 			stoppingMinions: make(map[string]bool),
+			characterStates: make(map[string]character.Data),
+			bosses:          make(map[string][]string),
+			workers:         make(map[string][]string),
 		}
 
 	m.loadState()
@@ -182,9 +191,19 @@ func (m *model) loadState() {
 				m.upCount++
 			}
 		}
+		m.characterStates = make(map[string]character.Data, len(m.minions))
+		for _, mc := range m.minions {
+			pd, _ := m.db.GetCharacterState(mc.Filename)
+			if pd.HairStyle == "" {
+				_ = m.db.InitCharacterState(mc.Filename)
+				pd, _ = m.db.GetCharacterState(mc.Filename)
+			}
+			m.characterStates[mc.Filename] = pd
+		}
 	} else {
 		m.activeJobs = make(map[string]bool)
 		m.upCount = 0
+		m.characterStates = make(map[string]character.Data)
 	}
 
 	// Clean up stopping flags for jobs that completed
@@ -193,6 +212,29 @@ func (m *model) loadState() {
 			delete(m.stoppingMinions, fn)
 		}
 	}
+
+	bosses := make(map[string][]string)
+	workers := make(map[string][]string)
+	for _, mc := range m.minions {
+		for _, tell := range mc.Tell {
+			targetRaw, ok := tell["minion"]
+			if !ok {
+				continue
+			}
+			targetName := fmt.Sprintf("%v", targetRaw)
+			for _, target := range m.minions {
+				normTarget := strings.TrimSuffix(strings.TrimSuffix(targetName, ".yaml"), ".yml")
+				normFilename := strings.TrimSuffix(strings.TrimSuffix(target.Filename, ".yaml"), ".yml")
+				if normTarget == normFilename {
+					bosses[target.Filename] = append(bosses[target.Filename], mc.Name)
+					workers[mc.Filename] = append(workers[mc.Filename], target.Name)
+					break
+				}
+			}
+		}
+	}
+	m.bosses = bosses
+	m.workers = workers
 
 	if len(m.minions) == 0 {
 		m.cursor = 0

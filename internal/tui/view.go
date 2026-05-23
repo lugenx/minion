@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/robfig/cron/v3"
 	
+	"minion/internal/character"
 	"minion/internal/engine"
 )
 
@@ -93,23 +94,42 @@ func (m model) View() string {
 	innerW := contentW - 2
 	if innerW < 0 { innerW = 0 }
 
+	const minWidthForPet = 100
+	showPet := m.width >= minWidthForPet
+
 	header := m.renderHeader(contentW)
 	footer := m.renderFooter(contentW)
 
 	_, contentH := contentHeight(m.mainH)
 
 	var content string
-	switch m.state {
-	case stateDashboard:
-		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Render(m.renderList(innerW, contentH))
-	case stateDetail:
-		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.builderViewport.View())
-	case stateForm:
-		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderBuilder(innerW, contentH, true))
-	case stateLogs:
-		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderLogs(innerW, contentH))
-	case stateEnv:
-		content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderEnvEditor(innerW, contentH))
+
+	if showPet && m.state == stateDashboard && character.Enabled() {
+		const petH = 21
+		if contentH >= petH+4 {
+			petContent := paneStyle.Width(contentW).Height(petH).PaddingTop(0).Render(m.renderCharacter(innerW, petH))
+			listH := contentH - petH - 1
+			if listH < 3 {
+				listH = 3
+			}
+			listContent := paneStyle.Width(contentW).Height(listH).PaddingTop(1).Render(m.renderList(innerW, listH))
+			content = petContent + "\n" + listContent
+		} else {
+			content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Render(m.renderList(innerW, contentH))
+		}
+	} else {
+		switch m.state {
+		case stateDashboard:
+			content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Render(m.renderList(innerW, contentH))
+		case stateDetail:
+			content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.builderViewport.View())
+		case stateForm:
+			content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderBuilder(innerW, contentH, true))
+		case stateLogs:
+			content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderLogs(innerW, contentH))
+		case stateEnv:
+			content = paneStyle.Width(contentW).Height(contentH).PaddingTop(1).Align(lipgloss.Center).Render(m.renderEnvEditor(innerW, contentH))
+		}
 	}
 
 	var body string

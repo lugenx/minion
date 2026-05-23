@@ -6,6 +6,8 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	"minion/internal/character"
 )
 
 type Store struct {
@@ -61,14 +63,51 @@ func InitStore(dbPath string) (*Store, error) {
 		item_data TEXT NOT NULL,
 		parent_minion TEXT NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE IF NOT EXISTS character_state (
+		minion_filename TEXT PRIMARY KEY,
+		total_runs INTEGER DEFAULT 0,
+		total_matches INTEGER DEFAULT 0,
+		last_results INTEGER DEFAULT 0,
+		last_errors INTEGER DEFAULT 0
 	);`
 
 	_, err = db.Exec(createTableQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create table: %w", err)
+		return nil, fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	if err := migrateSchema(db); err != nil {
+		return nil, fmt.Errorf("schema migration failed: %w", err)
 	}
 
 	return &Store{db: db}, nil
+}
+
+func migrateSchema(db *sql.DB) error {
+	var version int
+	_ = db.QueryRow("PRAGMA user_version").Scan(&version)
+
+	if version < 1 {
+		if _, err := db.Exec("ALTER TABLE character_state ADD COLUMN character_type TEXT DEFAULT ''"); err != nil {
+			return fmt.Errorf("migration v1 alter: %w", err)
+		}
+
+		var count int
+		_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pet_state'").Scan(&count)
+		if count > 0 {
+			_, _ = db.Exec(`
+				INSERT OR IGNORE INTO character_state (minion_filename, total_runs, total_matches, last_results, last_errors)
+				SELECT minion_filename, total_runs, total_matches, last_results, last_errors FROM pet_state
+			`)
+		}
+
+		if _, err := db.Exec("PRAGMA user_version = 1"); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *Store) Close() error {
@@ -286,6 +325,7 @@ func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 	}
 	_, _ = s.db.Exec("DELETE FROM chain_inbox WHERE target_minion = ? OR parent_minion = ?", minionFilename, minionFilename)
 	_, _ = s.db.Exec("DELETE FROM run_queue WHERE minion_filename = ?", minionFilename)
+	_, _ = s.db.Exec("DELETE FROM character_state WHERE minion_filename = ?", minionFilename)
 
 	count1, _ := res1.RowsAffected()
 	count2, _ := res2.RowsAffected()
@@ -309,7 +349,7 @@ func (s *Store) ClearAllState() (int64, error) {
 	n, _ = res.RowsAffected()
 	total += n
 
-	for _, table := range []string{"active_jobs", "abort_queue", "run_queue", "chain_inbox", "minion_status"} {
+	for _, table := range []string{"active_jobs", "abort_queue", "run_queue", "chain_inbox", "minion_status", "character_state"} {
 		res, _ = s.db.Exec("DELETE FROM " + table)
 		n, _ = res.RowsAffected()
 		total += n
@@ -409,4 +449,43 @@ func (s *Store) HasChainData(targetMinion string) (bool, error) {
 func (s *Store) ClearChainData() error {
 	_, err := s.db.Exec("DELETE FROM chain_inbox")
 	return err
+}
+
+func (s *Store) UpdateCharacterState(filename string, results, errors int) error {
+	randStyle := string(character.RandomHairStyle())
+	_, err := s.db.Exec(`
+		INSERT INTO character_state (minion_filename, total_runs, total_matches, last_results, last_errors, character_type)
+		VALUES (?, 1, ?, ?, ?, ?)
+		ON CONFLICT(minion_filename) DO UPDATE SET
+			total_runs = total_runs + 1,
+			total_matches = total_matches + excluded.total_matches,
+			last_results = excluded.last_results,
+			last_errors = excluded.last_errors,
+			character_type = CASE WHEN character_state.character_type = '' THEN excluded.character_type ELSE character_state.character_type END`,
+		filename, results, results, errors, randStyle)
+	return err
+}
+
+func (s *Store) InitCharacterState(filename string) error {
+	style := string(character.RandomHairStyle())
+	_, err := s.db.Exec(`
+		INSERT OR IGNORE INTO character_state
+		(minion_filename, total_runs, total_matches, last_results, last_errors, character_type)
+		VALUES (?, 0, 0, 0, 0, ?)`,
+		filename, style)
+	return err
+}
+
+func (s *Store) GetCharacterState(filename string) (character.Data, error) {
+	var pd character.Data
+	var hs string
+	err := s.db.QueryRow("SELECT total_runs, total_matches, last_results, last_errors, character_type FROM character_state WHERE minion_filename = ?", filename).Scan(&pd.TotalRuns, &pd.TotalMatches, &pd.LastResults, &pd.LastErrors, &hs)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return character.Data{}, nil
+		}
+		return character.Data{}, err
+	}
+	pd.HairStyle = character.HairStyle(hs)
+	return pd, nil
 }

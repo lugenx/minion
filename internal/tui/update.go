@@ -866,20 +866,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			switch {
-				case key.Matches(msg, m.keys.Up):
-					if m.cursor > 0 {
-						m.cursor--
-						m.updateListOffset()
-						m.builderViewport.SetYOffset(0)
-						m.syncBuilderViewport()
-					}
-				case key.Matches(msg, m.keys.Down):
-					if m.cursor < len(m.minions)-1 {
-						m.cursor++
-						m.updateListOffset()
-						m.builderViewport.SetYOffset(0)
-						m.syncBuilderViewport()
-					}
+			case key.Matches(msg, m.keys.Up):
+				if m.cursor > 0 {
+					m.cursor--
+					m.focusFilename = m.minions[m.cursor].Filename
+					m.updateListOffset()
+					m.builderViewport.SetYOffset(0)
+					m.syncBuilderViewport()
+				}
+			case key.Matches(msg, m.keys.Down):
+				if m.cursor < len(m.minions)-1 {
+					m.cursor++
+					m.focusFilename = m.minions[m.cursor].Filename
+					m.updateListOffset()
+					m.builderViewport.SetYOffset(0)
+					m.syncBuilderViewport()
+				}
 					case key.Matches(msg, m.keys.Toggle):
 						if len(m.minions) > 0 {
 							selected := m.minions[m.cursor]
@@ -909,12 +911,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							return m, nil
 						}
-				case key.Matches(msg, m.keys.Enter):
-					if len(m.minions) > 0 {
-						m.state = stateDetail
-						m.builderViewport.SetYOffset(0)
-						m.syncBuilderViewport()
-					}
+			case key.Matches(msg, m.keys.Enter):
+				if len(m.minions) > 0 {
+					m.focusFilename = m.minions[m.cursor].Filename
+					m.state = stateDetail
+					m.builderViewport.SetYOffset(0)
+					m.syncBuilderViewport()
+				}
 					case key.Matches(msg, m.keys.Env):
 						envData, err := os.ReadFile(config.EnvPath)
 						if err == nil {
@@ -947,33 +950,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.syncBuilderViewport()
 						return m, tea.Batch(cmds...)
 					}
-					case key.Matches(msg, m.keys.Run):
-						if len(m.minions) > 0 {
-							selected := m.minions[m.cursor]
-							
-							if !m.activeJobs[selected.Filename] {
-								if m.db != nil {
-									_ = m.db.QueueRun(selected.Filename)
+				case key.Matches(msg, m.keys.Run):
+					if len(m.minions) > 0 {
+						selected := m.minions[m.cursor]
+						m.focusFilename = selected.Filename
 
-									if !m.daemonRunning {
-										c := exec.Command(os.Args[0], "run", "-d")
-										_ = c.Run()
-										m.daemonRunning = true
-									}
+						if !m.activeJobs[selected.Filename] {
+							if m.db != nil {
+								_ = m.db.QueueRun(selected.Filename)
+
+								if !m.daemonRunning {
+									c := exec.Command(os.Args[0], "run", "-d")
+									_ = c.Run()
+									m.daemonRunning = true
 								}
 							}
-							
-							m.state = stateLogs
-							m.logContent = ""
-							m.logViewport.SetContent("")
-							m.tailing = true
-							
-							logChan = make(chan string, 100)
-							ctx := context.Background()
-							
-							cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
-							return m, tea.Batch(cmds...)
 						}
+						
+						m.state = stateLogs
+						m.logContent = ""
+						m.logViewport.SetContent("")
+						m.tailing = true
+						
+						logChan = make(chan string, 100)
+						ctx := context.Background()
+						
+						cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
+						return m, tea.Batch(cmds...)
+					}
 					case key.Matches(msg, m.keys.Stop):
 						if len(m.minions) > 0 {
 							selected := m.minions[m.cursor]
@@ -984,24 +988,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							return m, nil
 						}
-					case key.Matches(msg, m.keys.Log):
-						if len(m.minions) > 0 {
-							m.state = stateLogs
-							m.logContent = ""
-							m.logViewport.SetContent("")
-							m.tailing = true
-							
-							logChan = make(chan string, 100)
-							ctx := context.Background()
-							
-							selected := m.minions[m.cursor]
-							cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
-							return m, tea.Batch(cmds...)
-						}
-					case key.Matches(msg, m.keys.Edit):
-						if len(m.minions) > 0 {
-							selected := m.minions[m.cursor]
-							rawMinion := loadRawMinionForEditing(selected.Filename)
+				case key.Matches(msg, m.keys.Log):
+					if len(m.minions) > 0 {
+						selected := m.minions[m.cursor]
+						m.focusFilename = selected.Filename
+						m.state = stateLogs
+						m.logContent = ""
+						m.logViewport.SetContent("")
+						m.tailing = true
+						
+						logChan = make(chan string, 100)
+						ctx := context.Background()
+						
+						cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
+						return m, tea.Batch(cmds...)
+					}
+				case key.Matches(msg, m.keys.Edit):
+					if len(m.minions) > 0 {
+						selected := m.minions[m.cursor]
+						m.focusFilename = selected.Filename
+						rawMinion := loadRawMinionForEditing(selected.Filename)
 							if rawMinion == nil {
 								rawMinion = selected // Fallback
 							}
@@ -1091,6 +1097,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						case key.Matches(msg, m.keys.Run):
 							if len(m.minions) > 0 {
 								selected := m.minions[m.cursor]
+								m.focusFilename = selected.Filename
 								if !m.activeJobs[selected.Filename] {
 									if m.db != nil {
 										_ = m.db.QueueRun(selected.Filename)
@@ -1122,19 +1129,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 						case key.Matches(msg, m.keys.Log):
 							if len(m.minions) > 0 {
+								selected := m.minions[m.cursor]
+								m.focusFilename = selected.Filename
 								m.state = stateLogs
 								m.logContent = ""
 								m.logViewport.SetContent("")
 								m.tailing = true
 								logChan = make(chan string, 100)
 								ctx := context.Background()
-								selected := m.minions[m.cursor]
 								cmds = append(cmds, tailLogCmd(ctx, selected, logChan), listenForLogs(logChan))
 								return m, tea.Batch(cmds...)
 							}
 						case key.Matches(msg, m.keys.Edit):
 							if len(m.minions) > 0 {
 								selected := m.minions[m.cursor]
+								m.focusFilename = selected.Filename
 								rawMinion := loadRawMinionForEditing(selected.Filename)
 								if rawMinion == nil {
 									rawMinion = selected
