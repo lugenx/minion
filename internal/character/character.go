@@ -24,6 +24,7 @@ type Mood int
 
 const (
 	Sleeping Mood = iota
+	Blinking
 	Awake
 )
 
@@ -84,7 +85,7 @@ func Enabled() bool {
 
 func babyFaceLine(eyes EyeCount, mood Mood) string {
 	switch mood {
-	case Sleeping:
+	case Sleeping, Blinking:
 		if eyes == One {
 			return "|---|"
 		}
@@ -99,7 +100,7 @@ func babyFaceLine(eyes EyeCount, mood Mood) string {
 
 func adultFaceLine(eyes EyeCount, mood Mood) string {
 	switch mood {
-	case Sleeping:
+	case Sleeping, Blinking:
 		if eyes == One {
 			return "|-(-)-|"
 		}

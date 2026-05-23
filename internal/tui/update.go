@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1183,6 +1184,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.upCount++
 				}
 			}
+			// Refresh bosses/workers from tell cross-ref
+			bosses := make(map[string][]string)
+			workers := make(map[string][]string)
+			for _, mc := range m.minions {
+				for _, tell := range mc.Tell {
+					targetRaw, ok := tell["minion"]
+					if !ok {
+						continue
+					}
+					targetName := fmt.Sprintf("%v", targetRaw)
+					for _, target := range m.minions {
+						normTarget := strings.TrimSuffix(strings.TrimSuffix(targetName, ".yaml"), ".yml")
+						normFilename := strings.TrimSuffix(strings.TrimSuffix(target.Filename, ".yaml"), ".yml")
+						if normTarget == normFilename {
+							bosses[target.Filename] = append(bosses[target.Filename], mc.Name)
+							workers[mc.Filename] = append(workers[mc.Filename], target.Name)
+							break
+						}
+					}
+				}
+			}
+			m.bosses = bosses
+			m.workers = workers
+			// Refresh character states
+			for _, mc := range m.minions {
+				pd, _ := m.db.GetCharacterState(mc.Filename)
+				if pd.HairStyle != "" {
+					m.characterStates[mc.Filename] = pd
+				}
+			}
 			// Clean up stopping flags for jobs that completed
 			for fn := range m.stoppingMinions {
 				if !m.activeJobs[fn] {
@@ -1190,7 +1221,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		
+
+		m.charTick++
+		started := false
+		if m.db != nil && m.focusFilename != "" {
+			started = m.db.GetMinionStatus(m.focusFilename)
+		}
+		disabled := false
+		for _, mc := range m.minions {
+			if mc.Filename == m.focusFilename {
+				disabled = mc.Enabled != nil && !*mc.Enabled
+				break
+			}
+		}
+		if !disabled && started && !m.isBlinking && rand.Intn(7) == 0 {
+			m.isBlinking = true
+			m.blinkEnd = m.charTick + 1
+		}
+		if m.isBlinking && m.charTick >= m.blinkEnd {
+			m.isBlinking = false
+		}
 		if _, err := os.Stat(config.PIDPath); err == nil {
 			m.daemonRunning = true
 		} else {

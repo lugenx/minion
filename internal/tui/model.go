@@ -96,6 +96,10 @@ type model struct {
 	bosses          map[string][]string
 	workers         map[string][]string
 	focusFilename   string
+
+	charTick      int
+	isBlinking    bool
+	blinkEnd      int
 }
 
 type PublicModel interface {
@@ -153,6 +157,7 @@ func newModel() model {
 			characterStates: make(map[string]character.Data),
 			bosses:          make(map[string][]string),
 			workers:         make(map[string][]string),
+
 		}
 
 	m.loadState()

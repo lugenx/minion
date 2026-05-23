@@ -10,6 +10,8 @@ import (
 	"minion/internal/config"
 )
 
+var zzzSeq = []string{"",   "z",  "zz", "zzZ", "zzZ.", "zzZ..", "zzZ..."}
+
 func (m model) renderCharacter(w, h int) string {
 	if !character.Enabled() {
 		return lipgloss.NewStyle().Width(w).Height(h).Render("")
@@ -48,6 +50,9 @@ func (m model) renderCharacter(w, h int) string {
 
 	stage := character.GetStage(pd.CreatedAt)
 	mood := character.GetMood(disabled, isStarted)
+	if mood == character.Awake && m.isBlinking {
+		mood = character.Blinking
+	}
 	lines := character.Art(pd.HairStyle, stage, mood)
 	if len(lines) == 0 {
 		return lipgloss.NewStyle().Width(w).Height(h).Render("")
@@ -62,7 +67,7 @@ func (m model) renderCharacter(w, h int) string {
 	const artBoxH = 10
 	for len(lines) < artBoxH {
 		if mood == character.Sleeping && len(lines) == artBoxH-1 {
-			lines = append([]string{strings.Repeat(" ", 22) + grey.Render("zzZ")}, lines...)
+			lines = append([]string{strings.Repeat(" ", 22) + grey.Render(fmt.Sprintf("%-6s", zzzSeq[m.charTick%len(zzzSeq)]))}, lines...)
 		} else {
 			lines = append([]string{""}, lines...)
 		}
