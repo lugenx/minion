@@ -2,10 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	lipgloss "github.com/charmbracelet/lipgloss"
 
@@ -49,13 +46,7 @@ func (m model) renderCharacter(w, h int) string {
 
 	disabled := mc.Enabled != nil && !*mc.Enabled
 
-	path := filepath.Join(config.MinionsDir, fn)
-	var birthTime time.Time
-	if fi, err := os.Stat(path); err == nil {
-		birthTime = getBirthTime(fi)
-	}
-
-	stage := character.GetStage(birthTime)
+	stage := character.GetStage(pd.CreatedAt)
 	mood := character.GetMood(disabled, isStarted)
 	lines := character.Art(pd.HairStyle, stage, mood)
 	if len(lines) == 0 {
@@ -78,8 +69,8 @@ func (m model) renderCharacter(w, h int) string {
 	}
 
 	ageStr := ""
-	if !birthTime.IsZero() {
-		ageStr = character.FormatAge(birthTime)
+	if !pd.CreatedAt.IsZero() {
+		ageStr = character.FormatAge(pd.CreatedAt)
 	}
 
 	labelSty := lipgloss.NewStyle().Foreground(colorMuted)

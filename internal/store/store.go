@@ -85,29 +85,33 @@ func InitStore(dbPath string) (*Store, error) {
 }
 
 func migrateSchema(db *sql.DB) error {
-	var version int
-	_ = db.QueryRow("PRAGMA user_version").Scan(&version)
+	var hasCol int
 
-	if version < 1 {
+	_ = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('character_state') WHERE name='character_type'").Scan(&hasCol)
+	if hasCol == 0 {
 		if _, err := db.Exec("ALTER TABLE character_state ADD COLUMN character_type TEXT DEFAULT ''"); err != nil {
-			return fmt.Errorf("migration v1 alter: %w", err)
-		}
-
-		var count int
-		_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pet_state'").Scan(&count)
-		if count > 0 {
-			_, _ = db.Exec(`
-				INSERT OR IGNORE INTO character_state (minion_filename, total_runs, total_matches, last_results, last_errors)
-				SELECT minion_filename, total_runs, total_matches, last_results, last_errors FROM pet_state
-			`)
-		}
-
-		if _, err := db.Exec("PRAGMA user_version = 1"); err != nil {
-			return err
+			return fmt.Errorf("migrate character_type: %w", err)
 		}
 	}
 
-	return nil
+	var count int
+	_ = db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='pet_state'").Scan(&count)
+	if count > 0 {
+		_, _ = db.Exec(`
+			INSERT OR IGNORE INTO character_state (minion_filename, total_runs, total_matches, last_results, last_errors)
+			SELECT minion_filename, total_runs, total_matches, last_results, last_errors FROM pet_state
+		`)
+	}
+
+	_ = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('character_state') WHERE name='created_at'").Scan(&hasCol)
+	if hasCol == 0 {
+		if _, err := db.Exec("ALTER TABLE character_state ADD COLUMN created_at DATETIME"); err != nil {
+			return fmt.Errorf("migrate created_at: %w", err)
+		}
+	}
+
+	_, err := db.Exec("UPDATE character_state SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
+	return err
 }
 
 func (s *Store) Close() error {
@@ -454,8 +458,8 @@ func (s *Store) ClearChainData() error {
 func (s *Store) UpdateCharacterState(filename string, results, errors int) error {
 	randStyle := string(character.RandomHairStyle())
 	_, err := s.db.Exec(`
-		INSERT INTO character_state (minion_filename, total_runs, total_matches, last_results, last_errors, character_type)
-		VALUES (?, 1, ?, ?, ?, ?)
+		INSERT INTO character_state (minion_filename, total_runs, total_matches, last_results, last_errors, character_type, created_at)
+		VALUES (?, 1, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(minion_filename) DO UPDATE SET
 			total_runs = total_runs + 1,
 			total_matches = total_matches + excluded.total_matches,
@@ -470,8 +474,8 @@ func (s *Store) InitCharacterState(filename string) error {
 	style := string(character.RandomHairStyle())
 	_, err := s.db.Exec(`
 		INSERT OR IGNORE INTO character_state
-		(minion_filename, total_runs, total_matches, last_results, last_errors, character_type)
-		VALUES (?, 0, 0, 0, 0, ?)`,
+		(minion_filename, total_runs, total_matches, last_results, last_errors, character_type, created_at)
+		VALUES (?, 0, 0, 0, 0, ?, CURRENT_TIMESTAMP)`,
 		filename, style)
 	return err
 }
@@ -479,7 +483,8 @@ func (s *Store) InitCharacterState(filename string) error {
 func (s *Store) GetCharacterState(filename string) (character.Data, error) {
 	var pd character.Data
 	var hs string
-	err := s.db.QueryRow("SELECT total_runs, total_matches, last_results, last_errors, character_type FROM character_state WHERE minion_filename = ?", filename).Scan(&pd.TotalRuns, &pd.TotalMatches, &pd.LastResults, &pd.LastErrors, &hs)
+	var createdAt sql.NullTime
+	err := s.db.QueryRow("SELECT total_runs, total_matches, last_results, last_errors, character_type, created_at FROM character_state WHERE minion_filename = ?", filename).Scan(&pd.TotalRuns, &pd.TotalMatches, &pd.LastResults, &pd.LastErrors, &hs, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return character.Data{}, nil
@@ -487,5 +492,8 @@ func (s *Store) GetCharacterState(filename string) (character.Data, error) {
 		return character.Data{}, err
 	}
 	pd.HairStyle = character.HairStyle(hs)
+	if createdAt.Valid {
+		pd.CreatedAt = createdAt.Time
+	}
 	return pd, nil
 }

@@ -65,6 +65,7 @@ type Data struct {
 	LastResults  int
 	LastErrors   int
 	HairStyle    HairStyle
+	CreatedAt    time.Time
 }
 
 var allHairStyles = []HairStyle{StdOne, StdTwo, SpkOne, SpkTwo, CrlOne, CrlTwo, BnnOne, BnnTwo}
@@ -156,9 +157,9 @@ func GetStage(birthTime time.Time) Stage {
 	}
 	age := time.Since(birthTime)
 	switch {
-	case age >= 3*24*time.Hour:
+	case age >= 30*24*time.Hour:
 		return Adult
-	case age >= 1*24*time.Hour:
+	case age >= 7*24*time.Hour:
 		return Child
 	default:
 		return Baby
@@ -176,7 +177,7 @@ func FormatAge(t time.Time) string {
 	age := time.Since(t)
 	switch {
 	case age < 24*time.Hour:
-		return "newborn"
+		return "Newborn"
 	case age < 7*24*time.Hour:
 		d := int(age.Hours() / 24)
 		if d == 1 {
