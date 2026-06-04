@@ -286,32 +286,7 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 
 			runCtx.Stats.Results += len(res.Matches)
 
-			for _, aiMatch := range res.Matches {
-				itemURL := aiMatch.URL
-				if itemURL == "" {
-					itemURL = m.URL
-				}
-
-				itemURL = strings.TrimSuffix(itemURL, "/")
-				cleanParentURL := strings.TrimSuffix(m.URL, "/")
-
-				inheritedText := ""
-				inheritedHash := ""
-				if itemURL == cleanParentURL {
-					inheritedText = m.Text
-					inheritedHash = m.TempHash
-				}
-
-				nextArray = append(nextArray, types.Item{
-					ID:        generateID(),
-					URL:       itemURL,
-					ParentURL: cleanParentURL,
-					Title:     aiMatch.Title,
-					Summary:   aiMatch.Summary,
-					Text:      inheritedText,
-					TempHash:  inheritedHash,
-				})
-			}
+			nextArray = buildURLResultItems(m, res.Matches)
 		}
 		matchArray = nextArray
 		if len(matchArray) == 0 {
@@ -324,4 +299,24 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 	}
 
 	return nil
+}
+
+func buildURLResultItems(parentItem types.Item, matches []urlMatch) []types.Item {
+	var items []types.Item
+	for _, aiMatch := range matches {
+		itemURL := aiMatch.URL
+		if itemURL == "" {
+			itemURL = parentItem.URL
+		}
+		itemURL = strings.TrimSuffix(itemURL, "/")
+		cleanParentURL := strings.TrimSuffix(parentItem.URL, "/")
+		items = append(items, types.Item{
+			ID:        generateID(),
+			URL:       itemURL,
+			ParentURL: cleanParentURL,
+			Title:     aiMatch.Title,
+			Summary:   aiMatch.Summary,
+		})
+	}
+	return items
 }

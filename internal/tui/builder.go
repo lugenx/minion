@@ -130,7 +130,7 @@ func saveBuilder(data *builderData) error {
 		if fs, ok := step.(*FromStep); ok {
 			var filtered []config.Source
 			for _, s := range fs.Sources {
-				if s.URL == "" && s.Search == "" && s.Minion == "" && s.Command == "" {
+				if s.URL == "" && s.Search == "" && s.Minion == "" && s.Command == "" && s.File == "" {
 					continue
 				}
 				filtered = append(filtered, s)

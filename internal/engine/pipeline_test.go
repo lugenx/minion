@@ -918,6 +918,157 @@ func TestStatsCounters_ProcessURLItem(t *testing.T) {
 		runCtx.Stats.Sent, runCtx.Stats.Errors)
 }
 
+func TestBuildURLResultItems_NoText(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page"}
+	matches := []urlMatch{
+		{Title: "t1", URL: "https://example.com/page", Summary: "s1"},
+		{Title: "t2", URL: "", Summary: "s2"},
+	}
+	items := buildURLResultItems(parent, matches)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	for i, item := range items {
+		if item.Text != "" {
+			t.Fatalf("item[%d].Text should be empty after do step, got %q", i, item.Text)
+		}
+		if item.TempHash != "" {
+			t.Fatalf("item[%d].TempHash should be empty after do step, got %q", i, item.TempHash)
+		}
+	}
+}
+
+func TestBuildURLResultItems_URLFallback(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page"}
+	matches := []urlMatch{
+		{Title: "t1", URL: "", Summary: "s1"},
+	}
+	items := buildURLResultItems(parent, matches)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].URL != "https://example.com/page" {
+		t.Fatalf("expected parent URL fallback, got %q", items[0].URL)
+	}
+}
+
+func TestBuildURLResultItems_TrailingSlash(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page/"}
+	matches := []urlMatch{
+		{Title: "t1", URL: "https://example.com/other/", Summary: "s1"},
+	}
+	items := buildURLResultItems(parent, matches)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].URL != "https://example.com/other" {
+		t.Fatalf("expected trailing slash stripped, got %q", items[0].URL)
+	}
+	if items[0].ParentURL != "https://example.com/page" {
+		t.Fatalf("expected parent trailing slash stripped, got %q", items[0].ParentURL)
+	}
+}
+
+func TestBuildMinionResultItems_NoText(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page"}
+	matches := []minionMatch{
+		{Title: "t1", URL: "https://example.com/page", Summary: "s1"},
+		{Title: "t2", URL: "", Summary: "s2"},
+	}
+	items := buildMinionResultItems(parent, matches)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	for i, item := range items {
+		if item.Text != "" {
+			t.Fatalf("item[%d].Text should be empty after do step, got %q", i, item.Text)
+		}
+		if item.TempHash != "" {
+			t.Fatalf("item[%d].TempHash should be empty after do step, got %q", i, item.TempHash)
+		}
+	}
+}
+
+func TestBuildMinionResultItems_URLFallback(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page"}
+	matches := []minionMatch{
+		{Title: "t1", URL: "", Summary: "s1"},
+	}
+	items := buildMinionResultItems(parent, matches)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].URL != "https://example.com/page" {
+		t.Fatalf("expected parent URL fallback, got %q", items[0].URL)
+	}
+}
+
+func TestBuildFileResultItems_NoText(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page"}
+	matches := []fileMatch{
+		{Title: "t1", URL: "https://example.com/page", Summary: "s1"},
+		{Title: "t2", URL: "", Summary: "s2"},
+	}
+	items := buildFileResultItems(parent, matches)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	for i, item := range items {
+		if item.Text != "" {
+			t.Fatalf("item[%d].Text should be empty after do step, got %q", i, item.Text)
+		}
+		if item.TempHash != "" {
+			t.Fatalf("item[%d].TempHash should be empty after do step, got %q", i, item.TempHash)
+		}
+	}
+}
+
+func TestBuildCommandResultItems_NoText(t *testing.T) {
+	matches := []commandMatch{
+		{Title: "t1", URL: "https://example.com", Summary: "s1"},
+	}
+	items := buildCommandResultItems(matches)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].Text != "" {
+		t.Fatalf("item.Text should be empty after do step, got %q", items[0].Text)
+	}
+	if items[0].TempHash != "" {
+		t.Fatalf("item.TempHash should be empty after do step, got %q", items[0].TempHash)
+	}
+}
+
+func TestBuildDoResultItems_NoText(t *testing.T) {
+	matches := []doMatch{
+		{Title: "t1", URL: "https://example.com", Summary: "s1"},
+	}
+	items := buildDoResultItems(matches)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].Text != "" {
+		t.Fatalf("item.Text should be empty after do step, got %q", items[0].Text)
+	}
+	if items[0].TempHash != "" {
+		t.Fatalf("item.TempHash should be empty after do step, got %q", items[0].TempHash)
+	}
+}
+
+func TestBuilder_TitleSummaryPassthrough(t *testing.T) {
+	parent := types.Item{URL: "https://example.com/page"}
+	matches := []urlMatch{
+		{Title: "my title", Summary: "my summary"},
+	}
+	items := buildURLResultItems(parent, matches)
+	if items[0].Title != "my title" {
+		t.Fatalf("expected title 'my title', got %q", items[0].Title)
+	}
+	if items[0].Summary != "my summary" {
+		t.Fatalf("expected summary 'my summary', got %q", items[0].Summary)
+	}
+}
+
 func TestLLMParseStripping(t *testing.T) {
 	// Test the JSON stripping logic that exists in all from_*.go files
 	raw := "```json\n{\n  \"matches\": [{ \"title\": \"test\", \"url\": \"\", \"summary\": \"test item\" }]\n}\n```"

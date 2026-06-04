@@ -64,18 +64,21 @@ var subFields = map[string]bool{
 	"FromMatch":        true,
 	"FromRender":       true,
 	"FromLimit":        true,
+	"FromFile":         true,
 	"DeliverMarkdown":  true,
 	"DeliverUsername":  true,
 	"DeliverPassword":  true,
 	"DeliverMethod":    true,
 	"DeliverHeaders":   true,
 	"DeliverPayload":   true,
+	"DeliverMax":       true,
 	"ReportMarkdown":   true,
 	"ReportUsername":   true,
 	"ReportPassword":  true,
 	"ReportMethod":     true,
 	"ReportHeaders":    true,
 	"ReportPayload":    true,
+	"ReportMax":        true,
 }
 
 func contentHeight(avail int) (_, h int) {
@@ -590,9 +593,9 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 					target.WriteString(fmt.Sprintf("%s%s\n", fullCursor, m.textInput.View()))
 					var allSugs []string
 				if m.addSubItemField == "From" {
-					allSugs = []string{"url", "search", "minion", "command"}
+					allSugs = []string{"url", "search", "minion", "command", "file"}
 				} else {
-					allSugs = []string{"ntfy", "discord", "http_request", "minion"}
+					allSugs = []string{"ntfy", "discord", "http_request", "minion", "file"}
 				}
 				input := strings.ToLower(strings.TrimSpace(m.textInput.Value()))
 				var sugs []string
@@ -651,14 +654,42 @@ func (m model) renderBuilderString(w, h int, isEditMode bool) string {
 			displayLines = []string{m.textInput.View()}
 
 			contextType := ""
+			if (row.Field == "TellURL" || row.Field == "ReportURL") && row.StepIndex >= 0 && row.StepIndex < len(m.builderData.Steps) && row.TargetIndex >= 0 {
+				if tellStep, ok := m.builderData.Steps[row.StepIndex].(*TellStep); ok {
+					if row.TargetIndex < len(tellStep.Targets) {
+						for k := range tellStep.Targets[row.TargetIndex] {
+							if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
+								contextType = k
+								break
+							}
+						}
+					}
+				}
+				if contextType == "" {
+					if reportStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
+						if row.TargetIndex < len(reportStep.Targets) {
+							for k := range reportStep.Targets[row.TargetIndex] {
+								if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
+									contextType = k
+									break
+								}
+							}
+						}
+					}
+				}
+			}
 
 			sugs, _ := getSuggestions(false, row.Field, contextType, m.textInput.Value())
 			if len(sugs) > 0 {
+				highlightIdx := m.sugHighlight
+				if highlightIdx < 0 {
+					highlightIdx = 0
+				}
 				for j, s := range sugs {
-					if j == 0 {
-						displayLines = append(displayLines, lipgloss.NewStyle().Foreground(colorAccent).Render(s))
+					if j == highlightIdx {
+						displayLines = append(displayLines, lipgloss.NewStyle().Foreground(colorAccent).Render("> "+s))
 					} else {
-						displayLines = append(displayLines, mutedStyle.Render(s))
+						displayLines = append(displayLines, mutedStyle.Render("  "+s))
 					}
 				}
 			}

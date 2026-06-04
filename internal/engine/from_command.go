@@ -242,16 +242,7 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 
 			runCtx.Stats.Results += len(res.Matches)
 
-			for _, aiMatch := range res.Matches {
-				itemURL := strings.TrimSuffix(aiMatch.URL, "/")
-
-				nextArray = append(nextArray, types.Item{
-					ID:      generateID(),
-					URL:     itemURL,
-					Title:   aiMatch.Title,
-					Summary: aiMatch.Summary,
-				})
-			}
+			nextArray = buildCommandResultItems(res.Matches)
 		}
 		matchArray = nextArray
 		if len(matchArray) == 0 {
@@ -264,4 +255,18 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 	}
 
 	return nil
+}
+
+func buildCommandResultItems(matches []commandMatch) []types.Item {
+	var items []types.Item
+	for _, aiMatch := range matches {
+		itemURL := strings.TrimSuffix(aiMatch.URL, "/")
+		items = append(items, types.Item{
+			ID:      generateID(),
+			URL:     itemURL,
+			Title:   aiMatch.Title,
+			Summary: aiMatch.Summary,
+		})
+	}
+	return items
 }

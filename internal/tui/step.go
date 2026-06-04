@@ -53,6 +53,8 @@ func (s *FromStep) GetRows(stepIndex int) []builderRow {
 		switch {
 		case src.SourceType == "command" || src.Command != "":
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromCommand", Label: "command", Value: src.Command})
+		case src.SourceType == "file" || src.File != "":
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromFile", Label: "file", Value: src.File})
 		case src.SourceType == "minion" || src.Minion != "":
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "FromMinion", Label: "minion", Value: src.Minion})
 		case src.SourceType == "search" || src.Search != "" || src.Limit != 0:
@@ -78,6 +80,7 @@ func (s *FromStep) UpdateField(field string, targetIndex int, value string) erro
 	case "FromSearch": s.Sources[targetIndex].Search = value
 	case "FromMinion": s.Sources[targetIndex].Minion = value
 	case "FromCommand": s.Sources[targetIndex].Command = value
+	case "FromFile": s.Sources[targetIndex].File = value
 	case "FromLimit":
 		if l, err := strconv.Atoi(value); err == nil { s.Sources[targetIndex].Limit = l }
 	}
@@ -92,6 +95,8 @@ func (s *FromStep) AddArrayItem(field string) {
 		s.Sources = append(s.Sources, config.Source{Minion: "", SourceType: "minion"})
 	} else if field == "FromCommand" {
 		s.Sources = append(s.Sources, config.Source{Command: "", SourceType: "command"})
+	} else if field == "FromFile" {
+		s.Sources = append(s.Sources, config.Source{File: "", SourceType: "file"})
 	}
 }
 func (s *FromStep) RemoveArrayItem(field string, index int) {
@@ -194,7 +199,7 @@ func (s *TellStep) GetRows(stepIndex int) []builderRow {
 		var url string
 		var ttype string
 		for k, v := range target {
-			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 				ttype = k
 				url = fmt.Sprintf("%v", v)
 				break
@@ -238,6 +243,11 @@ func (s *TellStep) GetRows(stepIndex int) []builderRow {
 			}
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverUsername", Label: "auth user", Value: username})
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverPassword", Label: "auth pass", Value: password})
+
+		case "file":
+			max := 0
+			if v, ok := target["max"].(int); ok { max = v }
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverMax", Label: "max", Value: fmt.Sprintf("%d", max)})
 		}
 
 		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Target ]"})
@@ -254,20 +264,21 @@ func (s *TellStep) UpdateField(field string, targetIndex int, value string) erro
 	switch field {
 	case "TellType":
 		for k := range target {
-			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 				delete(target, k)
 			}
 		}
 		delete(target, "markdown")
 		delete(target, "method")
 		delete(target, "payload_template")
+		delete(target, "max")
 		if value != "" {
 			target[value] = ""
 		}
 	case "TellURL":
 		ttype := "ntfy"
 		for k := range target {
-			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 				ttype = k
 				break
 			}
@@ -296,6 +307,8 @@ func (s *TellStep) UpdateField(field string, targetIndex int, value string) erro
 		target["method"] = value
 	case "DeliverPayload":
 		target["payload_template"] = value
+	case "DeliverMax":
+		if i, err := strconv.Atoi(value); err == nil { target["max"] = i }
 	}
 	return nil
 }
@@ -324,7 +337,7 @@ func (s *ReportStep) GetRows(stepIndex int) []builderRow {
 		var url string
 		var ttype string
 		for k, v := range target {
-			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 				ttype = k
 				url = fmt.Sprintf("%v", v)
 				break
@@ -368,6 +381,11 @@ func (s *ReportStep) GetRows(stepIndex int) []builderRow {
 			}
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportUsername", Label: "auth user", Value: username})
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportPassword", Label: "auth pass", Value: password})
+
+		case "file":
+			max := 0
+			if v, ok := target["max"].(int); ok { max = v }
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportMax", Label: "max", Value: fmt.Sprintf("%d", max)})
 		}
 
 		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Target ]"})
@@ -384,20 +402,21 @@ func (s *ReportStep) UpdateField(field string, targetIndex int, value string) er
 	switch field {
 	case "ReportType":
 		for k := range target {
-			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 				delete(target, k)
 			}
 		}
 		delete(target, "markdown")
 		delete(target, "method")
 		delete(target, "payload_template")
+		delete(target, "max")
 		if value != "" {
 			target[value] = ""
 		}
 	case "ReportURL":
 		ttype := "ntfy"
 		for k := range target {
-			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+			if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 				ttype = k
 				break
 			}
@@ -426,6 +445,8 @@ func (s *ReportStep) UpdateField(field string, targetIndex int, value string) er
 		target["method"] = value
 	case "ReportPayload":
 		target["payload_template"] = value
+	case "ReportMax":
+		if i, err := strconv.Atoi(value); err == nil { target["max"] = i }
 	}
 	return nil
 }

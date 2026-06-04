@@ -107,16 +107,7 @@ func processDoOnly(ctx context.Context, minion *config.MinionConfig, item *types
 		return nil
 	}
 
-	var nextArray []types.Item
-	for _, aiMatch := range res.Matches {
-		itemURL := strings.TrimSuffix(aiMatch.URL, "/")
-		nextArray = append(nextArray, types.Item{
-			ID:      generateID(),
-			URL:     itemURL,
-			Title:   aiMatch.Title,
-			Summary: aiMatch.Summary,
-		})
-	}
+	nextArray := buildDoResultItems(res.Matches)
 
 	if len(res.Matches) == 0 {
 		runCtx.Stats.Skipped++
@@ -134,4 +125,18 @@ func processDoOnly(ctx context.Context, minion *config.MinionConfig, item *types
 	}
 
 	return nil
+}
+
+func buildDoResultItems(matches []doMatch) []types.Item {
+	var items []types.Item
+	for _, aiMatch := range matches {
+		itemURL := strings.TrimSuffix(aiMatch.URL, "/")
+		items = append(items, types.Item{
+			ID:      generateID(),
+			URL:     itemURL,
+			Title:   aiMatch.Title,
+			Summary: aiMatch.Summary,
+		})
+	}
+	return items
 }

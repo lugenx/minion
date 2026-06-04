@@ -143,7 +143,7 @@ when: "daily @ 09:00"
 - Raw cron: `*/15 * * * *`
 
 ### from (Data Sources)
-You can specify URLs, search queries, shell commands, or hand off data from another minion.
+You can specify URLs, search queries, file paths, shell commands, or hand off data from another minion. The `file` source reads any text file — YAML records separated by `---` are parsed into structured fields; plain text passes through as raw content.
 
 Add `render: true` for JavaScript-heavy pages. This boots a headless Chromium browser to execute JS and wait for network requests before extracting links.
 
@@ -157,6 +157,7 @@ from:
   - search: latest open source AI models
     limit: 3
   - minion: other_minion_filename
+  - file: ~/.config/minion/data/input.yaml
   - command: curl -s https://api.example.com/status
 ```
 
@@ -183,7 +184,7 @@ do: Find mentions of product launches. Ignore rumors.
 ```
 
 ### tell (Delivery)
-Minion POSTs summaries to any URL. It supports env var expansion so you never hardcode passwords.
+Minion can POST summaries to any URL or write results to a file. It supports env var expansion so you never hardcode passwords.
 
 ```yaml
 tell:
@@ -201,6 +202,9 @@ tell:
   #     X-Priority: High
   #   payload_template: |
   #     {"title": "{{.Title}}", "body": "{{.Summary}}"}
+
+  # - file: ~/.config/minion/data/output.yaml
+  #   max: 100
 ```
 
 ### report (Mission Report)
@@ -209,6 +213,7 @@ Sends a summary of the run (duration, items found, cost) using the same routing 
 ```yaml
 report:
   - ntfy: https://ntfy.sh/my-logs
+  # - file: ~/.config/minion/data/report.yaml
 ```
 
 **Example output:**
@@ -249,6 +254,8 @@ If not set, falls back to the `DEFAULT_MODEL` environment variable in `.env`.
 ## Passing Data Between Minions
 
 Minions can hand data to other minions. This is useful for splitting work — one minion gathers links, another studies them for a different topic.
+
+Minions can also collaborate asynchronously through files — one writes results via `tell.file`, another reads them later via `from.file`.
 
 **Sending minion** uses the target's filename:
 ```yaml

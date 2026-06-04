@@ -290,9 +290,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
 						var allSugs []string
 						if m.addSubItemField == "From" {
-							allSugs = []string{"url", "search", "minion", "command"}
+							allSugs = []string{"url", "search", "minion", "command", "file"}
 						} else {
-							allSugs = []string{"ntfy", "discord", "http_request", "minion"}
+							allSugs = []string{"ntfy", "discord", "http_request", "minion", "file"}
 						}
 						input := strings.ToLower(strings.TrimSpace(m.textInput.Value()))
 						var sugs []string
@@ -319,9 +319,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 							var allSugs []string
 							if m.addSubItemField == "From" {
-								allSugs = []string{"url", "search", "minion", "command"}
+								allSugs = []string{"url", "search", "minion", "command", "file"}
 							} else {
-								allSugs = []string{"ntfy", "discord", "http_request", "minion"}
+								allSugs = []string{"ntfy", "discord", "http_request", "minion", "file"}
 							}
 							matched := ""
 							for _, s := range allSugs {
@@ -345,6 +345,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								case "url": step.AddArrayItem("FromURL")
 								case "search": step.AddArrayItem("FromSearch")
 								case "command": step.AddArrayItem("FromCommand")
+								case "file": step.AddArrayItem("FromFile")
 								default: step.AddArrayItem("FromMinion")
 								}
 								fromStep := m.builderData.Steps[m.addSubItemIdx].(*FromStep)
@@ -475,7 +476,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if tellStep, ok := m.builderData.Steps[row.StepIndex].(*TellStep); ok {
 							if row.TargetIndex < len(tellStep.Targets) {
 								for k := range tellStep.Targets[row.TargetIndex] {
-									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 										return k
 									}
 								}
@@ -484,7 +485,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if reportStep, ok := m.builderData.Steps[row.StepIndex].(*ReportStep); ok {
 							if row.TargetIndex < len(reportStep.Targets) {
 								for k := range reportStep.Targets[row.TargetIndex] {
-									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" {
+									if k == "ntfy" || k == "discord" || k == "http_request" || k == "minion" || k == "file" {
 										return k
 									}
 								}
@@ -497,23 +498,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if keyMsg, ok := msg.(tea.KeyMsg); ok && key.Matches(keyMsg, key.NewBinding(key.WithKeys("tab"))) {
 						sugs, _ := getSuggestions(false, row.Field, contextType, m.textInput.Value())
 						if len(sugs) > 0 {
-							m.textInput.SetValue(sugs[0])
-							m.textInput.SetCursor(len(sugs[0]))
+							m.sugHighlight++
+							if m.sugHighlight >= len(sugs) {
+								m.sugHighlight = 0
+							}
 						}
 						m.syncBuilderViewport()
 					return m, tea.Batch(cmds...)
 				}
 
 				var tiCmd tea.Cmd
+				prevVal := m.textInput.Value()
 				m.textInput, tiCmd = m.textInput.Update(msg)
 				cmds = append(cmds, tiCmd)
+				if m.textInput.Value() != prevVal {
+					m.sugHighlight = -1
+				}
 				
 					if keyMsg, ok := msg.(tea.KeyMsg); ok {
 						if key.Matches(keyMsg, key.NewBinding(key.WithKeys("enter"))) {
 							val := m.textInput.Value()
 							
 								sugs, isStrict := getSuggestions(false, row.Field, contextType, val)
-								if len(sugs) > 0 && isStrict {
+								if len(sugs) > 0 && m.sugHighlight >= 0 && m.sugHighlight < len(sugs) {
+									val = sugs[m.sugHighlight]
+									m.sugHighlight = -1
+									m.textInput.SetValue(val)
+									m.textInput.SetCursor(len(val))
+								} else if len(sugs) > 0 && isStrict {
 									isExact := false
 									for _, s := range sugs {
 										if s == val {
@@ -524,6 +536,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									if !isExact {
 										val = sugs[0]
 									}
+								}
+								if len(sugs) == 1 && val != sugs[0] {
+									val = sugs[0]
+									m.sugHighlight = -1
+									if row.StepIndex >= 0 {
+										step := m.builderData.Steps[row.StepIndex]
+										_ = step.UpdateField(row.Field, row.TargetIndex, val)
+									}
+									m.textInput.SetValue(val)
+									m.textInput.SetCursor(len(val))
+									m.refreshBuilderRows()
+									m.syncBuilderViewport()
+									return m, tea.Batch(cmds...)
 								}
 
 							if row.StepIndex == -1 {
@@ -670,7 +695,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addSubItemField = "From"
 						m.editMode = true
 						m.textInput.Reset()
-						m.textInput.Prompt = "Source type (url/search): "
+						m.textInput.Prompt = "Source type (url/search/file): "
 						m.textInput.Focus()
 						cmds = append(cmds, textinput.Blink)
 					} else if row.Field == "Tell" || row.Field == "Report" {
@@ -678,7 +703,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.addSubItemField = row.Field
 						m.editMode = true
 						m.textInput.Reset()
-						m.textInput.Prompt = "Target type (ntfy/discord/http_request/minion): "
+						m.textInput.Prompt = "Target type (ntfy/discord/http_request/minion/file): "
 						m.textInput.Focus()
 						cmds = append(cmds, textinput.Blink)
 					} else {

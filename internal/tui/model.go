@@ -87,6 +87,7 @@ type model struct {
 	addSubItemField string
 	confirmDelete   bool
 	dirty           bool
+	sugHighlight    int
 	textInput     textinput.Model
 	textArea      textarea.Model
 
@@ -157,6 +158,7 @@ func newModel() model {
 			characterStates: make(map[string]character.Data),
 			bosses:          make(map[string][]string),
 			workers:         make(map[string][]string),
+			sugHighlight:    -1,
 
 		}
 

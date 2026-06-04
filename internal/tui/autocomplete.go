@@ -1,6 +1,12 @@
 package tui
 
-import "strings"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+
+	"minion/internal/config"
+)
 
 func getSuggestions(isAddStep bool, field, contextType, input string) (matches []string, isStrict bool) {
 	var options []string
@@ -24,7 +30,7 @@ func getSuggestions(isAddStep bool, field, contextType, input string) (matches [
 		}
 		isStrict = false
 	} else if field == "TellType" || field == "ReportType" {
-		options = []string{"ntfy", "discord", "minion", "http_request"}
+		options = []string{"ntfy", "discord", "minion", "http_request", "file"}
 		isStrict = true
 	} else if field == "TellURL" || field == "ReportURL" {
 		if contextType == "ntfy" {
@@ -35,6 +41,33 @@ func getSuggestions(isAddStep bool, field, contextType, input string) (matches [
 			options = []string{"https://"}
 		} else if contextType == "minion" {
 			options = []string{"worker.yaml"}
+		} else if contextType == "file" {
+			dataDir := filepath.Join(config.GlobalConfigDir, "data")
+			entries, err := os.ReadDir(dataDir)
+			if err == nil {
+				for _, e := range entries {
+					if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
+						options = append(options, filepath.Join(dataDir, e.Name()))
+					}
+				}
+			}
+			if len(options) == 0 {
+				options = append(options, filepath.Join(config.GlobalConfigDir, "data", "filename.yaml"))
+			}
+		}
+		isStrict = false
+	} else if field == "FromFile" {
+		dataDir := filepath.Join(config.GlobalConfigDir, "data")
+		entries, err := os.ReadDir(dataDir)
+		if err == nil {
+			for _, e := range entries {
+				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
+					options = append(options, filepath.Join(dataDir, e.Name()))
+				}
+			}
+		}
+		if len(options) == 0 {
+			options = append(options, filepath.Join(config.GlobalConfigDir, "data", "filename.yaml"))
 		}
 		isStrict = false
 	} else {
@@ -51,7 +84,11 @@ func getSuggestions(isAddStep bool, field, contextType, input string) (matches [
 			compareInput = inputLower
 		}
 		
-		if strings.HasPrefix(compareOpt, compareInput) {
+		if field == "FromFile" || (contextType == "file" && (field == "TellURL" || field == "ReportURL")) {
+			if strings.Contains(strings.ToLower(opt), strings.ToLower(inputRaw)) {
+				matches = append(matches, opt)
+			}
+		} else if strings.HasPrefix(compareOpt, compareInput) {
 			matches = append(matches, opt)
 		}
 	}

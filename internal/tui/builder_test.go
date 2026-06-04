@@ -19,6 +19,7 @@ from:
     limit: 5
   - minion: other_minion
   - command: ls -la
+  - file: /var/log/syslog
 do: test task
 settings:
   timeout: 30
@@ -29,8 +30,8 @@ settings:
 		t.Fatal(err)
 	}
 
-	if len(m.From) != 4 {
-		t.Fatalf("expected 4 sources, got %d", len(m.From))
+	if len(m.From) != 5 {
+		t.Fatalf("expected 5 sources, got %d", len(m.From))
 	}
 
 	tests := []struct {
@@ -42,6 +43,7 @@ settings:
 		{1, "search", func(s config.Source) bool { return s.Search == "test query" && s.Limit == 5 }},
 		{2, "minion", func(s config.Source) bool { return s.Minion == "other_minion" }},
 		{3, "command", func(s config.Source) bool { return s.Command == "ls -la" }},
+		{4, "file", func(s config.Source) bool { return s.File == "/var/log/syslog" }},
 	}
 
 	for _, tt := range tests {
@@ -62,8 +64,8 @@ settings:
 		t.Fatalf("GetRows returned %d rows, expected at least 4 source field rows", len(rows))
 	}
 
-	rowFields := []string{"FromURL", "FromSearch", "FromMinion", "FromCommand"}
-	rowVals := []string{"https://example.com", "test query", "other_minion", "ls -la"}
+	rowFields := []string{"FromURL", "FromSearch", "FromMinion", "FromCommand", "FromFile"}
+	rowVals := []string{"https://example.com", "test query", "other_minion", "ls -la", "/var/log/syslog"}
 	for i, field := range rowFields {
 		found := false
 		for _, r := range rows {
@@ -73,7 +75,7 @@ settings:
 					t.Errorf("GetRows field %s: value=%q, want %q", field, r.Value, rowVals[i])
 				}
 				// Verify label matches source type
-				expectedLabels := []string{"url", "search", "minion", "command"}
+				expectedLabels := []string{"url", "search", "minion", "command", "file"}
 				if r.Label != expectedLabels[i] {
 					t.Errorf("GetRows field %s: label=%q, want %q", field, r.Label, expectedLabels[i])
 				}
@@ -101,8 +103,8 @@ settings:
 		t.Fatal(err)
 	}
 
-	if len(m3.From) != 4 {
-		t.Fatalf("round-trip: expected 4 sources, got %d", len(m3.From))
+	if len(m3.From) != 5 {
+		t.Fatalf("round-trip: expected 5 sources, got %d", len(m3.From))
 	}
 
 	for _, tt := range tests {
@@ -125,6 +127,7 @@ func TestRoundTrip_TUItoYAMLtoTUI(t *testing.T) {
 			{Search: "golang", Limit: 3, SourceType: "search"},
 			{Minion: "event_tracker", SourceType: "minion"},
 			{Command: "df -h", SourceType: "command"},
+			{File: "/tmp/data.yaml", SourceType: "file"},
 		},
 	}
 
@@ -147,8 +150,8 @@ func TestRoundTrip_TUItoYAMLtoTUI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(m2.From) != 4 {
-		t.Fatalf("expected 4 sources, got %d", len(m2.From))
+	if len(m2.From) != 5 {
+		t.Fatalf("expected 5 sources, got %d", len(m2.From))
 	}
 
 	tests := []struct {
@@ -160,6 +163,7 @@ func TestRoundTrip_TUItoYAMLtoTUI(t *testing.T) {
 		{1, "search", func(s config.Source) bool { return s.Search == "golang" && s.Limit == 3 }},
 		{2, "minion", func(s config.Source) bool { return s.Minion == "event_tracker" }},
 		{3, "command", func(s config.Source) bool { return s.Command == "df -h" }},
+		{4, "file", func(s config.Source) bool { return s.File == "/tmp/data.yaml" }},
 	}
 
 	for _, tt := range tests {
@@ -175,8 +179,8 @@ func TestRoundTrip_TUItoYAMLtoTUI(t *testing.T) {
 	// Build TUI FromStep from parsed sources and verify GetRows
 	fromStep2 := &FromStep{Sources: m2.From}
 	rows := fromStep2.GetRows(0)
-	rowFields := []string{"FromURL", "FromSearch", "FromMinion", "FromCommand"}
-	rowVals := []string{"https://example.com/news", "golang", "event_tracker", "df -h"}
+	rowFields := []string{"FromURL", "FromSearch", "FromMinion", "FromCommand", "FromFile"}
+	rowVals := []string{"https://example.com/news", "golang", "event_tracker", "df -h", "/tmp/data.yaml"}
 
 	for i, field := range rowFields {
 		found := false
@@ -267,6 +271,8 @@ func TestSaveBuilder_FiltersEmptySources(t *testing.T) {
 					isEmpty = s.Minion == ""
 				case "search":
 					isEmpty = s.Search == "" && s.Limit == 0
+				case "file":
+					isEmpty = s.File == ""
 				default:
 					isEmpty = s.URL == ""
 				}
@@ -295,6 +301,7 @@ func TestInitBuilderData_FromSources(t *testing.T) {
 			{Search: "test", Limit: 5},
 			{Minion: "other"},
 			{Command: "df -h"},
+			{File: "/var/log/access.log"},
 		},
 		Do: "summarize",
 		Settings: config.Settings{
@@ -317,8 +324,8 @@ func TestInitBuilderData_FromSources(t *testing.T) {
 		t.Fatal("expected FromStep in builder data")
 	}
 
-	if len(fromStep.Sources) != 4 {
-		t.Fatalf("expected 4 sources in FromStep, got %d", len(fromStep.Sources))
+	if len(fromStep.Sources) != 5 {
+		t.Fatalf("expected 5 sources in FromStep, got %d", len(fromStep.Sources))
 	}
 
 	expected := []struct {
@@ -329,6 +336,7 @@ func TestInitBuilderData_FromSources(t *testing.T) {
 		{"FromSearch", "test"},
 		{"FromMinion", "other"},
 		{"FromCommand", "df -h"},
+		{"FromFile", "/var/log/access.log"},
 	}
 
 	rows := fromStep.GetRows(0)

@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -174,6 +175,20 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 				ID:         generateID(),
 				SourceType: "command",
 				Command:    source.Command,
+			}, runCtx, "cron")
+			if err != nil {
+				runCtx.Stats.Errors++
+				step("error", err.Error(), true)
+			}
+			continue
+		}
+
+		if source.File != "" {
+			step("from", fmt.Sprintf("file `%s`", source.File), false)
+			err := ProcessItem(ctx, minion, &types.Item{
+				ID:         generateID(),
+				SourceType: "file",
+				FilePath:   source.File,
 			}, runCtx, "cron")
 			if err != nil {
 				runCtx.Stats.Errors++
@@ -362,6 +377,8 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 		return processMinionChain(ctx, minion, item, runCtx, parentName)
 	case "command":
 		return processCommandItem(ctx, minion, item, runCtx)
+	case "file":
+		return processFileItem(ctx, minion, item, runCtx)
 	default:
 		return processURLItem(ctx, minion, item, runCtx)
 	}
@@ -370,13 +387,21 @@ func ProcessItem(ctx context.Context, minion *config.MinionConfig, item *types.I
 var envRegex = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}`)
 
 func strictExpandEnv(s string) string {
-	return envRegex.ReplaceAllStringFunc(s, func(match string) string {
+	s = envRegex.ReplaceAllStringFunc(s, func(match string) string {
 		varName := match[2 : len(match)-1]
 		if val, exists := os.LookupEnv(varName); exists {
 			return val
 		}
 		return match
 	})
+	if home, err := os.UserHomeDir(); err == nil {
+		if s == "~" {
+			s = home
+		} else if strings.HasPrefix(s, "~/") {
+			s = home + s[1:]
+		}
+	}
+	return s
 }
 
 func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext, matchArray []types.Item, targets []map[string]interface{}, saveHash bool) {
@@ -497,6 +522,25 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 						runCtx.Stats.Sent++
 					}
 					step("tell", fmt.Sprintf("http → %s", m.Title), false)
+				}
+			}
+
+			if filePath, ok := t["file"]; ok {
+				path := strictExpandEnv(fmt.Sprintf("%v", filePath))
+				var max int
+				if maxVal, ok := t["max"].(int); ok {
+					max = maxVal
+				}
+
+				err := delivery.WriteFileLine(path, &m, max)
+				if err != nil {
+					runCtx.Stats.Errors++
+					step("tell", fmt.Sprintf("file: %v", err), true)
+				} else {
+					if saveHash {
+						runCtx.Stats.Sent++
+					}
+					step("tell", fmt.Sprintf("file → %s", path), false)
 				}
 			}
 

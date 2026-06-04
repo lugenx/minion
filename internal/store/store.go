@@ -70,6 +70,13 @@ func InitStore(dbPath string) (*Store, error) {
 		total_matches INTEGER DEFAULT 0,
 		last_results INTEGER DEFAULT 0,
 		last_errors INTEGER DEFAULT 0
+	);
+	CREATE TABLE IF NOT EXISTS file_hashes (
+		file_path TEXT NOT NULL,
+		minion_filename TEXT NOT NULL,
+		last_line_hash TEXT NOT NULL DEFAULT '',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (file_path, minion_filename)
 	);`
 
 	_, err = db.Exec(createTableQuery)
@@ -318,6 +325,28 @@ func (s *Store) GetActiveJobs() (map[string]bool, error) {
 	return active, nil
 }
 
+func (s *Store) GetFileHash(filePath, minionFilename string) (string, error) {
+	var hash string
+	err := s.db.QueryRow("SELECT last_line_hash FROM file_hashes WHERE file_path = ? AND minion_filename = ?", filePath, minionFilename).Scan(&hash)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return hash, nil
+}
+
+func (s *Store) UpdateFileHash(filePath, minionFilename, hash string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO file_hashes (file_path, minion_filename, last_line_hash, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(file_path, minion_filename)
+		DO UPDATE SET last_line_hash = excluded.last_line_hash, updated_at = excluded.updated_at`,
+		filePath, minionFilename, hash, time.Now())
+	return err
+}
+
 func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 	res1, err := s.db.Exec("DELETE FROM scraped_pages WHERE minion_filename = ?", minionFilename)
 	if err != nil {
@@ -330,6 +359,7 @@ func (s *Store) ClearMinionState(minionFilename string) (int64, error) {
 	_, _ = s.db.Exec("DELETE FROM chain_inbox WHERE target_minion = ? OR parent_minion = ?", minionFilename, minionFilename)
 	_, _ = s.db.Exec("DELETE FROM run_queue WHERE minion_filename = ?", minionFilename)
 	_, _ = s.db.Exec("DELETE FROM character_state WHERE minion_filename = ?", minionFilename)
+	_, _ = s.db.Exec("DELETE FROM file_hashes WHERE minion_filename = ?", minionFilename)
 
 	count1, _ := res1.RowsAffected()
 	count2, _ := res2.RowsAffected()
@@ -353,7 +383,7 @@ func (s *Store) ClearAllState() (int64, error) {
 	n, _ = res.RowsAffected()
 	total += n
 
-	for _, table := range []string{"active_jobs", "abort_queue", "run_queue", "chain_inbox", "minion_status", "character_state"} {
+	for _, table := range []string{"active_jobs", "abort_queue", "run_queue", "chain_inbox", "minion_status", "character_state", "file_hashes"} {
 		res, _ = s.db.Exec("DELETE FROM " + table)
 		n, _ = res.RowsAffected()
 		total += n

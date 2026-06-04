@@ -18,6 +18,7 @@ type Source struct {
 	Limit      int    `yaml:"limit,omitempty"`
 	Minion     string `yaml:"minion,omitempty"`
 	Command    string `yaml:"command,omitempty"`
+	File       string `yaml:"file,omitempty"`
 	SourceType string `yaml:"-"`
 }
 
@@ -31,6 +32,7 @@ func (s *Source) UnmarshalYAML(value *yaml.Node) error {
 		Limit   int    `yaml:"limit"`
 		Minion  string `yaml:"minion"`
 		Command string `yaml:"command"`
+		File    string `yaml:"file"`
 	}
 	if err := value.Decode(&raw); err != nil {
 		return err
@@ -41,12 +43,15 @@ func (s *Source) UnmarshalYAML(value *yaml.Node) error {
 	s.Limit = raw.Limit
 	s.Minion = raw.Minion
 	s.Command = raw.Command
+	s.File = raw.File
 	if raw.Follow != "" {
 		s.Match = raw.Follow
 	} else {
 		s.Match = raw.Match
 	}
 	switch {
+	case raw.File != "":
+		s.SourceType = "file"
 	case raw.Command != "":
 		s.SourceType = "command"
 	case raw.Minion != "":
@@ -144,6 +149,7 @@ var (
 	EnvPath         string
 	MinionsDir      string
 	LogsDir         string
+	DataDir         string
 	DBPath          string
 	LogPath         string
 	PIDPath         string
@@ -172,6 +178,7 @@ func init() {
 	EnvPath = filepath.Join(GlobalConfigDir, ".env")
 	MinionsDir = filepath.Join(GlobalConfigDir, "minions")
 	LogsDir = filepath.Join(GlobalConfigDir, "logs")
+	DataDir = filepath.Join(GlobalConfigDir, "data")
 	DBPath = filepath.Join(GlobalConfigDir, "minion.db")
 	LogPath = filepath.Join(GlobalConfigDir, "minion.log")
 	PIDPath = filepath.Join(GlobalConfigDir, "minion.pid")
@@ -184,6 +191,9 @@ func EnsureDirectories() error {
 	}
 	if err := os.MkdirAll(LogsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create logs directory: %w", err)
+	}
+	if err := os.MkdirAll(DataDir, 0755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
 	}
 
 	if _, err := os.Stat(EnvPath); os.IsNotExist(err) {
@@ -233,7 +243,10 @@ from:
   - search: programming meetups this week
     limit: 3
 
-  # 5. Run a system command
+  # 5. Read records from a file (YAML stream or plain text)
+  # - file: ~/.config/minion/data/input.yaml
+
+  # 6. Run a system command
   - command: df -h
 
 keep:
@@ -256,8 +269,12 @@ tell:
       username: "${NTFY_USER}"
       password: "${NTFY_PASS}"
 
+  # - file: ~/.config/minion/data/output.yaml
+  #   max: 100
+
 report:
   - ntfy: https://ntfy.sh/your-topic-here
+  # - file: ~/.config/minion/data/report.yaml
 
 settings:
   timeout: 15
