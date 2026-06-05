@@ -203,9 +203,28 @@ tell:
   #   payload_template: |
   #     {"title": "{{.Title}}", "body": "{{.Summary}}"}
 
-  # - file: ~/.config/minion/data/output.yaml
-  #   capacity: 100
+  - file: ~/.config/minion/data/output.yaml
+    capacity: 100
 ```
+
+The `file` target appends each result as a YAML document to the given path (see output format below). The `capacity` parameter limits how many recent records are retained — oldest documents are trimmed on each write. Set `capacity: 0` to empty the file after every write. Omit `capacity` entirely for no limit.
+
+**File output format:** Each write appends a YAML document separated by `---` (multi-document stream). Fields vary by what the LLM extracts:
+
+```yaml
+title: Product Launch v2.0
+url: https://example.com/releases
+summary: Official release announcement for version 2.0.
+text: Full scraped page content...
+timestamp: 2026-06-05T12:34:56Z
+---
+title: Another Finding
+url: https://example.com/updates
+summary: Details on the update.
+timestamp: 2026-06-05T13:00:00Z
+```
+
+Available fields: `title` (pipe-indented multiline string), `url`, `summary`, `text`, `timestamp` (RFC3339, auto-populated if empty). Downstream consumers must parse `title` to extract structured data — the `do` prompt cannot override this output schema.
 
 ### report (Mission Report)
 Sends a summary of the run (duration, items found, cost) using the same routing as `tell`. Only fires once at the end.
@@ -280,6 +299,24 @@ do: Find event dates and locations.
 - **Skips unchanged pages.** Minion remembers page content. If nothing changed, it skips the AI call.
 - **Blocks off-topic pages.** Irrelevant URLs are marked forever and never scraped again.
 - **You only see what matters.** A notification fires when something actually matches.
+
+### Masking Dynamic Content
+
+Before computing the content hash, Minion applies regex-based masks from `~/.config/minion/masks.yaml`. This normalizes dynamic text (timestamps, view counts, follower counts) that changes on every page load, preventing false "page changed" detections.
+
+The file ships with 9 predefined masks:
+
+```yaml
+masks:
+  - name: "Relative Time"
+    pattern: '(?i)\b\d+\s*(secs?|seconds?|mins?|minutes?|hrs?|hours?|days?|weeks?|months?|years?)\s*ago\b'
+    replacement: '<TIME_AGO>'
+  - name: "Engagement Metrics"
+    pattern: '(?i)\b\d+\s*(views?|comments?|likes?|replies|retweets|shares)\b'
+    replacement: '<METRIC>'
+```
+
+Masks are applied in order during `GenerateContentHash()`. Edit `~/.config/minion/masks.yaml` to add custom patterns for your target sites.
 
 ---
 
