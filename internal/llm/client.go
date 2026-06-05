@@ -70,7 +70,7 @@ func Chat(ctx context.Context, model string, sysPrompt string, userPrompt string
 		req.Header.Set("Content-Type", "application/json")
 
 		client := &http.Client{
-			Timeout: 15 * time.Second,
+			Timeout: 120 * time.Second,
 		}
 		resp, err := client.Do(req)
 
