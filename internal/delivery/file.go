@@ -12,9 +12,12 @@ import (
 	"minion/internal/types"
 )
 
-func WriteFileLine(path string, item *types.Item, capacity int) error {
+func WriteFileLine(path string, item *types.Item, capacity *int) error {
 	if path == "" {
 		return nil
+	}
+	if capacity != nil && *capacity < 0 {
+		return fmt.Errorf("capacity must be >= 0, got %d", *capacity)
 	}
 
 	dir := filepath.Dir(path)
@@ -59,8 +62,8 @@ func WriteFileLine(path string, item *types.Item, capacity int) error {
 		return fmt.Errorf("failed to write: %w", err)
 	}
 
-	if capacity > 0 {
-		if err := trimFile(path, capacity); err != nil {
+	if capacity != nil {
+		if err := trimFile(path, *capacity); err != nil {
 			return fmt.Errorf("failed to trim: %w", err)
 		}
 	}

@@ -25,17 +25,17 @@ import (
 )
 
 type Stats struct {
-	StartTime  time.Time
-	EndTime    time.Time
-	Fetched    int
-	Unchanged  int
-	Analyzed   int
-	Discarded  int
-	Skipped    int
-	Results    int
-	Sent       int
-	Errors     int
-	TotalCost  float64
+	StartTime time.Time
+	EndTime   time.Time
+	Fetched   int
+	Unchanged int
+	Analyzed  int
+	Discarded int
+	Skipped   int
+	Results   int
+	Sent      int
+	Errors    int
+	TotalCost float64
 }
 
 func (s *Stats) Duration() time.Duration {
@@ -527,9 +527,10 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 
 			if filePath, ok := t["file"]; ok {
 				path := strictExpandEnv(fmt.Sprintf("%v", filePath))
-				var capacity int
+				var capacity *int
 				if v, ok := t["capacity"].(int); ok {
-					capacity = v
+					c := v
+					capacity = &c
 				}
 
 				err := delivery.WriteFileLine(path, &m, capacity)

@@ -9,6 +9,8 @@ import (
 	"minion/internal/types"
 )
 
+func ptr(i int) *int { return &i }
+
 func tempFilePath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "output.yaml")
@@ -19,7 +21,7 @@ func TestWriteFileLine_ItemWithText(t *testing.T) {
 	item := &types.Item{
 		Text: "raw scraped content",
 	}
-	if err := WriteFileLine(path, item, 0); err != nil {
+	if err := WriteFileLine(path, item, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -38,7 +40,7 @@ func TestWriteFileLine_ItemWithoutText(t *testing.T) {
 		Title:   "analyzed title",
 		Summary: "a summary",
 	}
-	if err := WriteFileLine(path, item, 0); err != nil {
+	if err := WriteFileLine(path, item, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -66,7 +68,7 @@ func TestWriteFileLine_ItemWithAllFields(t *testing.T) {
 		Text:      "x",
 		Timestamp: "now",
 	}
-	if err := WriteFileLine(path, item, 0); err != nil {
+	if err := WriteFileLine(path, item, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -94,7 +96,7 @@ func TestWriteFileLine_ItemWithAllFields(t *testing.T) {
 func TestWriteFileLine_EmptyItem(t *testing.T) {
 	path := tempFilePath(t)
 	item := &types.Item{}
-	if err := WriteFileLine(path, item, 0); err != nil {
+	if err := WriteFileLine(path, item, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -118,7 +120,7 @@ func TestWriteFileLine_MultipleDocs(t *testing.T) {
 	item3 := &types.Item{Text: "doc three"}
 
 	for _, item := range []*types.Item{item1, item2, item3} {
-		if err := WriteFileLine(path, item, 0); err != nil {
+		if err := WriteFileLine(path, item, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -140,7 +142,7 @@ func TestWriteFileLine_TrimToCapacity(t *testing.T) {
 
 	for range 5 {
 		item := &types.Item{Text: "doc"}
-		if err := WriteFileLine(path, item, 3); err != nil {
+		if err := WriteFileLine(path, item, ptr(3)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -156,13 +158,42 @@ func TestWriteFileLine_TrimToCapacity(t *testing.T) {
 	}
 }
 
+func TestWriteFileLine_ZeroCapacity(t *testing.T) {
+	path := tempFilePath(t)
+	item := &types.Item{Text: "doc"}
+
+	for range 3 {
+		if err := WriteFileLine(path, item, ptr(0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("expected empty file after writes with capacity=0, got: %q", string(data))
+	}
+}
+
+func TestWriteFileLine_NegativeCapacity(t *testing.T) {
+	path := tempFilePath(t)
+	item := &types.Item{Text: "doc"}
+
+	err := WriteFileLine(path, item, ptr(-1))
+	if err == nil {
+		t.Fatal("expected error for negative capacity, got nil")
+	}
+}
+
 func TestWriteFileLine_ItemWithURL(t *testing.T) {
 	path := tempFilePath(t)
 	item := &types.Item{
 		Title: "t",
 		URL:   "https://example.com",
 	}
-	if err := WriteFileLine(path, item, 0); err != nil {
+	if err := WriteFileLine(path, item, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
