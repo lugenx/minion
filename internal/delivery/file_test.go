@@ -135,7 +135,7 @@ func TestWriteFileLine_MultipleDocs(t *testing.T) {
 	}
 }
 
-func TestWriteFileLine_TrimToMax(t *testing.T) {
+func TestWriteFileLine_TrimToCapacity(t *testing.T) {
 	path := tempFilePath(t)
 
 	for range 5 {

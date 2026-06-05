@@ -270,7 +270,7 @@ tell:
       password: "${NTFY_PASS}"
 
   # - file: ~/.config/minion/data/output.yaml
-  #   max: 100
+  #   capacity: 100
 
 report:
   - ntfy: https://ntfy.sh/your-topic-here

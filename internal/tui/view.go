@@ -71,14 +71,14 @@ var subFields = map[string]bool{
 	"DeliverMethod":    true,
 	"DeliverHeaders":   true,
 	"DeliverPayload":   true,
-	"DeliverMax":       true,
+	"DeliverCapacity":  true,
 	"ReportMarkdown":   true,
 	"ReportUsername":   true,
 	"ReportPassword":  true,
 	"ReportMethod":     true,
 	"ReportHeaders":    true,
 	"ReportPayload":    true,
-	"ReportMax":        true,
+	"ReportCapacity":   true,
 }
 
 func contentHeight(avail int) (_, h int) {

@@ -12,7 +12,7 @@ import (
 	"minion/internal/types"
 )
 
-func WriteFileLine(path string, item *types.Item, max int) error {
+func WriteFileLine(path string, item *types.Item, capacity int) error {
 	if path == "" {
 		return nil
 	}
@@ -59,8 +59,8 @@ func WriteFileLine(path string, item *types.Item, max int) error {
 		return fmt.Errorf("failed to write: %w", err)
 	}
 
-	if max > 0 {
-		if err := trimFile(path, max); err != nil {
+	if capacity > 0 {
+		if err := trimFile(path, capacity); err != nil {
 			return fmt.Errorf("failed to trim: %w", err)
 		}
 	}
@@ -68,7 +68,7 @@ func WriteFileLine(path string, item *types.Item, max int) error {
 	return nil
 }
 
-func trimFile(path string, max int) error {
+func trimFile(path string, capacity int) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -83,11 +83,11 @@ func trimFile(path string, max int) error {
 		}
 	}
 
-	if len(docs) <= max {
+	if len(docs) <= capacity {
 		return nil
 	}
 
-	docs = docs[len(docs)-max:]
+	docs = docs[len(docs)-capacity:]
 
 	var buf strings.Builder
 	for i, doc := range docs {

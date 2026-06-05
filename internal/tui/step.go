@@ -245,9 +245,9 @@ func (s *TellStep) GetRows(stepIndex int) []builderRow {
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverPassword", Label: "auth pass", Value: password})
 
 		case "file":
-			max := 0
-			if v, ok := target["max"].(int); ok { max = v }
-			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverMax", Label: "max", Value: fmt.Sprintf("%d", max)})
+			capacity := 0
+			if v, ok := target["capacity"].(int); ok { capacity = v }
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "DeliverCapacity", Label: "capacity", Value: fmt.Sprintf("%d", capacity)})
 		}
 
 		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Target ]"})
@@ -271,7 +271,7 @@ func (s *TellStep) UpdateField(field string, targetIndex int, value string) erro
 		delete(target, "markdown")
 		delete(target, "method")
 		delete(target, "payload_template")
-		delete(target, "max")
+		delete(target, "capacity")
 		if value != "" {
 			target[value] = ""
 		}
@@ -307,8 +307,8 @@ func (s *TellStep) UpdateField(field string, targetIndex int, value string) erro
 		target["method"] = value
 	case "DeliverPayload":
 		target["payload_template"] = value
-	case "DeliverMax":
-		if i, err := strconv.Atoi(value); err == nil { target["max"] = i }
+	case "DeliverCapacity":
+		if i, err := strconv.Atoi(value); err == nil { target["capacity"] = i }
 	}
 	return nil
 }
@@ -383,9 +383,9 @@ func (s *ReportStep) GetRows(stepIndex int) []builderRow {
 			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportPassword", Label: "auth pass", Value: password})
 
 		case "file":
-			max := 0
-			if v, ok := target["max"].(int); ok { max = v }
-			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportMax", Label: "max", Value: fmt.Sprintf("%d", max)})
+			capacity := 0
+			if v, ok := target["capacity"].(int); ok { capacity = v }
+			rows = append(rows, builderRow{Type: rowStepField, StepIndex: stepIndex, TargetIndex: i, Field: "ReportCapacity", Label: "capacity", Value: fmt.Sprintf("%d", capacity)})
 		}
 
 		rows = append(rows, builderRow{Type: rowRemoveSubItem, StepIndex: stepIndex, TargetIndex: i, Label: "[ - Remove Target ]"})
@@ -409,7 +409,7 @@ func (s *ReportStep) UpdateField(field string, targetIndex int, value string) er
 		delete(target, "markdown")
 		delete(target, "method")
 		delete(target, "payload_template")
-		delete(target, "max")
+		delete(target, "capacity")
 		if value != "" {
 			target[value] = ""
 		}
@@ -445,8 +445,8 @@ func (s *ReportStep) UpdateField(field string, targetIndex int, value string) er
 		target["method"] = value
 	case "ReportPayload":
 		target["payload_template"] = value
-	case "ReportMax":
-		if i, err := strconv.Atoi(value); err == nil { target["max"] = i }
+	case "ReportCapacity":
+		if i, err := strconv.Atoi(value); err == nil { target["capacity"] = i }
 	}
 	return nil
 }

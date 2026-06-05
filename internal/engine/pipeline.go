@@ -527,12 +527,12 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 
 			if filePath, ok := t["file"]; ok {
 				path := strictExpandEnv(fmt.Sprintf("%v", filePath))
-				var max int
-				if maxVal, ok := t["max"].(int); ok {
-					max = maxVal
+				var capacity int
+				if v, ok := t["capacity"].(int); ok {
+					capacity = v
 				}
 
-				err := delivery.WriteFileLine(path, &m, max)
+				err := delivery.WriteFileLine(path, &m, capacity)
 				if err != nil {
 					runCtx.Stats.Errors++
 					step("tell", fmt.Sprintf("file: %v", err), true)

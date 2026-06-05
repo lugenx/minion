@@ -204,7 +204,7 @@ tell:
   #     {"title": "{{.Title}}", "body": "{{.Summary}}"}
 
   # - file: ~/.config/minion/data/output.yaml
-  #   max: 100
+  #   capacity: 100
 ```
 
 ### report (Mission Report)
