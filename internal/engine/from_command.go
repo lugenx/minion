@@ -37,10 +37,12 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 		return nil
 	}
 
-	isDiscarded, err := runCtx.Store.IsDiscarded(command, minion.Filename)
-	if err == nil && isDiscarded {
-		step("discarded", fmt.Sprintf("already discarded: `%s`", command), false)
-		return nil
+	if !runCtx.Ephemeral {
+		isDiscarded, err := runCtx.Store.IsDiscarded(command, minion.Filename)
+		if err == nil && isDiscarded {
+			step("discarded", fmt.Sprintf("already discarded: `%s`", command), false)
+			return nil
+		}
 	}
 
 	timeoutSec := minion.Settings.Timeout
@@ -54,17 +56,25 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 
 	execCtx, execCancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	out, runErr := exec.CommandContext(execCtx, "sh", "-c", expandedCmd).CombinedOutput()
+	execErr := execCtx.Err()
 	execCancel()
 
 	exitCode := 0
 	if runErr != nil {
-		if execCtx.Err() == context.DeadlineExceeded {
+		if execErr == context.DeadlineExceeded {
 			runCtx.Stats.Errors++
 			step("fetch", fmt.Sprintf("command timed out after %ds: `%s`", timeoutSec, command), true)
 			return nil
 		}
+		if execErr != nil {
+			return execErr
+		}
 		if exitErr, ok := runErr.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+			if runCtx.Ephemeral {
+				runCtx.Stats.Errors++
+				step("fetch", fmt.Sprintf("command exited with status %d: `%s`", exitCode, command), true)
+			}
 		} else {
 			runCtx.Stats.Errors++
 			step("fetch", fmt.Sprintf("command failed: `%s`: %v", command, runErr), true)
@@ -80,14 +90,16 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 	h := sha256.Sum256([]byte(strings.ToLower(outputText)))
 	hash := fmt.Sprintf("%x", h[:8])
 
-	savedHash, _ := runCtx.Store.GetPageHash(command, minion.Filename)
-	if savedHash == hash {
-		runCtx.Stats.Unchanged++
-		step("unchanged", "skipped", false)
-		return nil
-	}
+	if !runCtx.Ephemeral {
+		savedHash, _ := runCtx.Store.GetPageHash(command, minion.Filename)
+		if savedHash == hash {
+			runCtx.Stats.Unchanged++
+			step("unchanged", "skipped", false)
+			return nil
+		}
 
-	_ = runCtx.Store.UpdatePageHash(command, minion.Filename, hash)
+		_ = runCtx.Store.UpdatePageHash(command, minion.Filename, hash)
+	}
 
 	runCtx.Stats.Fetched++
 
@@ -250,7 +262,7 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 		}
 	}
 
-	if len(minion.Tell) > 0 {
+	if len(minion.Tell) > 0 || runCtx.OnResult != nil {
 		deliverTargets(ctx, minion, runCtx, matchArray, minion.Tell, true)
 	}
 

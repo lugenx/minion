@@ -81,9 +81,11 @@ type RunContext struct {
 	Store      *store.Store
 	Stats      *Stats
 	OnStep     func(step, details string, isError bool)
+	OnResult   func(item types.Item)
 	SmartSplit map[string]string
 	Browser    *rod.Browser
 	Launcher   *launcher.Launcher
+	Ephemeral  bool
 }
 
 func (r *RunContext) GetBrowser(timeoutSec int) (*rod.Browser, error) {
@@ -110,8 +112,10 @@ func (r *RunContext) GetBrowser(timeoutSec int) (*rod.Browser, error) {
 }
 
 func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext) error {
-	_ = runCtx.Store.MarkJobActive(minion.Filename)
-	defer runCtx.Store.MarkJobDone(minion.Filename)
+	if !runCtx.Ephemeral {
+		_ = runCtx.Store.MarkJobActive(minion.Filename)
+		defer runCtx.Store.MarkJobDone(minion.Filename)
+	}
 	defer func() {
 		if runCtx.Browser != nil {
 			_ = runCtx.Browser.Close()
@@ -298,8 +302,10 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 }
 
 func ProcessChainTrigger(ctx context.Context, minion *config.MinionConfig, runCtx *RunContext) error {
-	_ = runCtx.Store.MarkJobActive(minion.Filename)
-	defer runCtx.Store.MarkJobDone(minion.Filename)
+	if !runCtx.Ephemeral {
+		_ = runCtx.Store.MarkJobActive(minion.Filename)
+		defer runCtx.Store.MarkJobDone(minion.Filename)
+	}
 	defer func() {
 		if runCtx.Browser != nil {
 			_ = runCtx.Browser.Close()
@@ -430,6 +436,10 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 			} else {
 				runCtx.SmartSplit[m.URL] = m.ID
 			}
+		}
+
+		if saveHash && runCtx.OnResult != nil {
+			runCtx.OnResult(m)
 		}
 
 		if saveHash {

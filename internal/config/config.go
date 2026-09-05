@@ -372,9 +372,15 @@ func ensureEnvVar(key, val string) {
 
 func LoadEnv() error {
 	EnsureDirectories()
+	LoadExistingEnv()
+	ensureEnvVar("MINION_CHARACTER", "true")
+	return nil
+}
+
+// LoadExistingEnv loads optional runtime configuration without scaffolding files.
+func LoadExistingEnv() error {
 	LoadMasks()
 	_ = godotenv.Load(EnvPath)
-	ensureEnvVar("MINION_CHARACTER", "true")
 	return nil
 }
 

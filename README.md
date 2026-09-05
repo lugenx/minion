@@ -1,4 +1,4 @@
-# Minion: AI Web Monitoring Agent
+# Minion: AI Monitoring Engine
 
 Minion is a lightweight tool for automating web research.
 
@@ -122,10 +122,35 @@ Press `l` to see live step-by-step logs as the minion runs.
 *   **`minion up <filename|all>`** - Activates a minion.
 *   **`minion down [filename|all]`** - Deactivates a minion.
 *   **`minion run <filename>`** - Queues a minion for immediate execution.
+*   **`minion run key=value ...`** - Runs an ephemeral minion synchronously.
 *   **`minion stop <filename>`** - Aborts a running minion.
 *   **`minion ls`** - Lists all minions with their state and schedule.
 *   **`minion log [filename]`** - Follows live logs.
 *   **`minion clear <filename|--all>`** - Wipes a minion's memory so it re-evaluates seen items.
+
+---
+
+## Inline Runs
+
+Use ordered `key=value` arguments for one-off work without saving a YAML file:
+
+```bash
+minion run from.search="SearXNG Hermes Agent"
+minion run from.url="https://example.com" do="Summarize this page"
+```
+
+Inline runs print their results and exit. Without `do`, Minion skips the LLM and prints sanitized source content directly. With `do`, it prints each result's title, URL, and summary. Inline runs do not use or update saved content hashes, discarded URLs, or file cursors.
+
+Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them:
+
+```bash
+minion run \
+  from.search="SearXNG Hermes Agent" from.limit=5 \
+  from.search="Firecrawl Crawl4AI agents" from.limit=5 \
+  do="Compare sources and summarize the best options."
+```
+
+Repeat `keep`, `ignore`, or `tell.file` to create multiple entries. Supported inline keys are `name`, `from.search`, `from.url`, `from.command`, `from.file`, `from.limit`, `from.render`, `from.follow`, `keep`, `ignore`, `do`, `tell.file`, `settings.timeout`, and `settings.model`.
 
 ---
 

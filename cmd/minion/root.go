@@ -60,6 +60,7 @@ evaluates the survivors using an LLM via OpenRouter, and sends matches to a webh
 
 func Execute() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SilenceErrors = true
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

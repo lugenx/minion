@@ -120,7 +120,7 @@ func processDoOnly(ctx context.Context, minion *config.MinionConfig, item *types
 		return nil
 	}
 
-	if len(minion.Tell) > 0 {
+	if len(minion.Tell) > 0 || runCtx.OnResult != nil {
 		deliverTargets(ctx, minion, runCtx, nextArray, minion.Tell, true)
 	}
 

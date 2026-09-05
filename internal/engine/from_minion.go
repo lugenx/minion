@@ -20,7 +20,7 @@ type minionMatch struct {
 }
 
 type minionResult struct {
-	CacheAction string         `json:"cache_action"`
+	CacheAction string        `json:"cache_action"`
 	Matches     []minionMatch `json:"matches"`
 }
 
@@ -56,7 +56,7 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 			return ctx.Err()
 		}
 
-		if m.URL != "" {
+		if m.URL != "" && !runCtx.Ephemeral {
 			isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
 			if err == nil && isDiscarded {
 				step("discarded", fmt.Sprintf("already discarded: `%s`", m.URL), false)
@@ -67,14 +67,17 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 		if m.Text != "" && m.TempHash != "" && m.URL != "" {
 			step("fetch", fmt.Sprintf("passed through: `%s`", m.URL), false)
 
-			savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
-			if savedHash == m.TempHash {
-				runCtx.Stats.Unchanged++
-				step("unchanged", "skipped", false)
-				continue
+			if !runCtx.Ephemeral {
+				savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
+				if savedHash == m.TempHash {
+					runCtx.Stats.Unchanged++
+					step("unchanged", "skipped", false)
+					continue
+				}
+
+				_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, m.TempHash)
 			}
 
-			_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, m.TempHash)
 			scrapedArray = append(scrapedArray, m)
 			continue
 		}
@@ -253,7 +256,9 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 				} else {
 					runCtx.Stats.Discarded++
 					step("discard", fmt.Sprintf("irrelevant: `%s`", m.URL), false)
-					_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+					if !runCtx.Ephemeral {
+						_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+					}
 				}
 			} else if len(res.Matches) == 0 {
 				runCtx.Stats.Skipped++
@@ -270,7 +275,7 @@ func processMinionChain(ctx context.Context, minion *config.MinionConfig, item *
 		}
 	}
 
-	if len(minion.Tell) > 0 {
+	if len(minion.Tell) > 0 || runCtx.OnResult != nil {
 		deliverTargets(ctx, minion, runCtx, matchArray, minion.Tell, true)
 	}
 
