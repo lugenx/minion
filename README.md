@@ -154,13 +154,13 @@ timestamp: "2026-09-05T21:00:01-04:00"
 
 Without `do`, Minion skips the LLM and emits sanitized source content in `text`. With `do`, it emits the final stage's `title`, `url`, and `summary`; incoming fields removed by that stage stay removed. Inline runs do not use or update saved content hashes, discarded URLs, or file cursors.
 
-Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them:
+Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them. The same `do` prompt is applied independently to each surviving item, matching saved YAML minions; sources are not combined into one LLM context:
 
 ```bash
 minion run \
   from.search="SearXNG Hermes Agent" from.limit=5 \
   from.search="Firecrawl Crawl4AI agents" from.limit=5 \
-  do="Compare sources and summarize the best options."
+  do="Find useful setup instructions or implementation details on this page."
 ```
 
 Repeat `keep`, `ignore`, or `tell.file` to create multiple entries. Supported inline keys are `name`, `from.search`, `from.url`, `from.command`, `from.file`, `from.limit`, `from.render`, `from.follow`, `keep`, `ignore`, `do`, `tell.file`, `settings.timeout`, and `settings.model`.
