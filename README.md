@@ -139,15 +139,28 @@ minion run from.search="SearXNG Hermes Agent"
 minion run from.url="https://example.com" do="Summarize this page"
 ```
 
-Inline runs print their results and exit. Without `do`, Minion skips the LLM and prints sanitized source content directly. With `do`, it prints each result's title, URL, and summary. Inline runs do not use or update saved content hashes, discarded URLs, or file cursors.
+Inline runs print their results as the same `FileRecord` YAML documents used by `tell.file`, then exit. Multiple results are separated by `---`:
 
-Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them:
+```yaml
+url: https://example.com
+text: Sanitized page content...
+timestamp: "2026-09-05T21:00:00-04:00"
+---
+title: Analyzed result
+url: https://example.com/result
+summary: The final result produced by the do stage.
+timestamp: "2026-09-05T21:00:01-04:00"
+```
+
+Without `do`, Minion skips the LLM and emits sanitized source content in `text`. With `do`, it emits the final stage's `title`, `url`, and `summary`; incoming fields removed by that stage stay removed. Inline runs do not use or update saved content hashes, discarded URLs, or file cursors.
+
+Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them. The same `do` prompt is applied independently to each surviving item, matching saved YAML minions; sources are not combined into one LLM context:
 
 ```bash
 minion run \
   from.search="SearXNG Hermes Agent" from.limit=5 \
   from.search="Firecrawl Crawl4AI agents" from.limit=5 \
-  do="Compare sources and summarize the best options."
+  do="Find useful setup instructions or implementation details on this page."
 ```
 
 Repeat `keep`, `ignore`, or `tell.file` to create multiple entries. Supported inline keys are `name`, `from.search`, `from.url`, `from.command`, `from.file`, `from.limit`, `from.render`, `from.follow`, `keep`, `ignore`, `do`, `tell.file`, `settings.timeout`, and `settings.model`.

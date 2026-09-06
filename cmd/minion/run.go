@@ -22,6 +22,7 @@ import (
 
 	"minion/internal/character"
 	"minion/internal/config"
+	"minion/internal/delivery"
 	"minion/internal/engine"
 	"minion/internal/store"
 	"minion/internal/types"
@@ -110,7 +111,7 @@ func runInlineConfig(cmd *cobra.Command, m *config.MinionConfig) error {
 	}
 
 	runErr := engine.RunMission(ctx, m, runCtx)
-	if err := writeInlineResults(cmd.OutOrStdout(), m.Do != "", results); err != nil {
+	if err := writeInlineResults(cmd.OutOrStdout(), results); err != nil {
 		return fmt.Errorf("write results: %w", err)
 	}
 	if runErr != nil {
@@ -122,58 +123,23 @@ func runInlineConfig(cmd *cobra.Command, m *config.MinionConfig) error {
 	return nil
 }
 
-func writeInlineResults(w io.Writer, analyzed bool, items []types.Item) error {
-	records := make([]string, 0, len(items))
-	for _, item := range items {
-		var lines []string
-		if analyzed {
-			if item.Title != "" {
-				lines = append(lines, item.Title)
-			}
-			if item.URL != "" {
-				lines = append(lines, "URL: "+item.URL)
-			}
-			if item.Summary != "" {
-				lines = append(lines, item.Summary)
-			}
-			if len(lines) == 0 && item.Text != "" {
-				lines = append(lines, item.Text)
-			}
-		} else {
-			switch {
-			case item.URL != "":
-				lines = append(lines, "Source: "+item.URL)
-			case item.Command != "":
-				lines = append(lines, "Source: command: "+item.Command)
-			case item.FilePath != "":
-				lines = append(lines, "Source: file: "+item.FilePath)
-			}
-
-			if item.Text != "" {
-				lines = append(lines, item.Text)
-			} else {
-				if item.Title != "" {
-					lines = append(lines, item.Title)
-				}
-				if item.Summary != "" {
-					lines = append(lines, item.Summary)
-				}
-			}
-			if item.Timestamp != "" {
-				lines = append(lines, "Timestamp: "+item.Timestamp)
-			}
+func writeInlineResults(w io.Writer, items []types.Item) error {
+	for i := range items {
+		data, err := delivery.MarshalFileRecordYAML(&items[i])
+		if err != nil {
+			return err
 		}
 
-		if len(lines) > 0 {
-			records = append(records, strings.Join(lines, "\n"))
+		if i > 0 {
+			if _, err := io.WriteString(w, "---\n"); err != nil {
+				return err
+			}
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
 		}
 	}
-
-	if len(records) == 0 {
-		return nil
-	}
-	_, err := fmt.Fprintln(w, strings.Join(records, "\n\n"))
-	return err
+	return nil
 }
 
 func checkPIDLock() {

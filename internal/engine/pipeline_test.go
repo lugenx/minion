@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"minion/internal/config"
 	"minion/internal/store"
@@ -1256,5 +1259,99 @@ func TestLLMParseStripping(t *testing.T) {
 	}
 	if !strings.Contains(parsed, `"test item"`) {
 		t.Fatalf("expected test item in parsed output: %s", parsed)
+	}
+}
+
+func TestProcessFileItem_TimestampOnlyFileRecordStaysStructured(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "timestamp-only.yaml")
+	wantTimestamp := "2026-09-06T00:05:00Z"
+	if err := os.WriteFile(path, []byte("timestamp: \""+wantTimestamp+"\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var results []types.Item
+	runCtx := &RunContext{
+		Stats:     &Stats{},
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+	}
+	m := &config.MinionConfig{Name: "inline", Filename: "inline"}
+
+	if err := processFileItem(context.Background(), m, &types.Item{FilePath: path}, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one structured record, got %#v", results)
+	}
+	got := results[0]
+	if got.Timestamp != wantTimestamp {
+		t.Fatalf("timestamp changed: got %q, want %q", got.Timestamp, wantTimestamp)
+	}
+	if got.Title != "" || got.URL != "" || got.Summary != "" || got.Text != "" {
+		t.Fatalf("timestamp-only record was reinterpreted as content: %#v", got)
+	}
+}
+
+func TestDeliverTargets_SharesGeneratedTimestampWithOnResultAndFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.yaml")
+	var captured types.Item
+	runCtx := &RunContext{
+		Stats: &Stats{},
+		OnResult: func(item types.Item) {
+			captured = item
+		},
+	}
+	m := &config.MinionConfig{Name: "timestamp-test", Filename: "timestamp-test.yaml"}
+
+	deliverTargets(
+		context.Background(),
+		m,
+		runCtx,
+		[]types.Item{{Text: "same result"}},
+		[]map[string]interface{}{{"file": path}},
+		true,
+	)
+
+	if captured.Timestamp == "" {
+		t.Fatal("OnResult received an empty timestamp")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved types.FileRecord
+	if err := yaml.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Timestamp != captured.Timestamp {
+		t.Fatalf("destinations received different timestamps: callback=%q file=%q", captured.Timestamp, saved.Timestamp)
+	}
+}
+
+func TestNewBrowserDownloaderUsesQuietLogger(t *testing.T) {
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer func() { os.Stdout = originalStdout }()
+	os.Stdout = writer
+
+	downloader := newBrowserDownloader(context.Background())
+	downloader.Logger.Println("download noise")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = originalStdout
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output) != 0 {
+		t.Fatalf("browser downloader wrote to stdout: %q", output)
 	}
 }
