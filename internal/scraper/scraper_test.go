@@ -2,6 +2,9 @@ package scraper
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,4 +69,28 @@ func TestGenerateContentHash(t *testing.T) {
 		t.Error("hash should differ for different content")
 	}
 	t.Logf("Hash: %s", hash1[:16])
+}
+
+func TestFetchAndSanitize_TimeoutReportsConfiguredDuration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	_, _, err := FetchAndSanitize(context.Background(), server.URL, 1)
+	if err == nil || !strings.Contains(err.Error(), "timed out after 1s") {
+		t.Fatalf("expected configured timeout in error, got %v", err)
+	}
+}
+
+func TestExtractLinks_TimeoutReportsConfiguredDuration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	_, err := ExtractLinks(context.Background(), server.URL, "/docs", 1)
+	if err == nil || !strings.Contains(err.Error(), "timed out after 1s") {
+		t.Fatalf("expected configured timeout in error, got %v", err)
+	}
 }

@@ -1,6 +1,6 @@
 package types
 
-// FileRecord is the schema for YAML stream file-based pipeline I/O.
+// FileRecord is the schema for structured YAML pipeline I/O.
 type FileRecord struct {
 	Title     string `json:"title,omitempty" yaml:"title,omitempty"`
 	URL       string `json:"url,omitempty" yaml:"url,omitempty"`

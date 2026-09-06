@@ -139,15 +139,28 @@ minion run from.search="SearXNG Hermes Agent"
 minion run from.url="https://example.com" do="Summarize this page"
 ```
 
-Inline runs print their results and exit. Without `do`, Minion skips the LLM and prints sanitized source content directly. With `do`, it prints each result's title, URL, and summary. Inline runs do not use or update saved content hashes, discarded URLs, or file cursors.
+Inline runs print their results as structured YAML documents, the same format used by file delivery. Multiple results are separated by `---`:
 
-Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them:
+```yaml
+url: https://example.com
+text: Sanitized page content...
+timestamp: "2026-09-05T21:00:00-04:00"
+---
+title: Analyzed result
+url: https://example.com/result
+summary: The final result produced by the do stage.
+timestamp: "2026-09-05T21:00:01-04:00"
+```
+
+Without `do`, Minion skips the LLM and emits sanitized source content in `text`. With `do`, it emits the final stage's `title`, `url`, and `summary`; incoming fields removed by that stage stay removed. Inline runs do not use or update saved content hashes, discarded URLs, or file cursors.
+
+Declare another source to start a new source entry. `from.limit`, `from.follow`, and `from.render` apply to the source immediately before them. The same `do` prompt is applied independently to each surviving item, matching saved YAML minions; sources are not combined into one LLM context:
 
 ```bash
 minion run \
-  from.search="SearXNG Hermes Agent" from.limit=5 \
-  from.search="Firecrawl Crawl4AI agents" from.limit=5 \
-  do="Compare sources and summarize the best options."
+  from.search="latest open source AI models" from.limit=5 \
+  from.search="web scraping agents" from.limit=5 \
+  do="Find official release announcements for version 2.0 or higher."
 ```
 
 Repeat `keep`, `ignore`, or `tell.file` to create multiple entries. Supported inline keys are `name`, `from.search`, `from.url`, `from.command`, `from.file`, `from.limit`, `from.render`, `from.follow`, `keep`, `ignore`, `do`, `tell.file`, `settings.timeout`, and `settings.model`.
@@ -295,6 +308,12 @@ If not set, falls back to the `DEFAULT_MODEL` environment variable in `.env`.
 
 ---
 
+## Automating with AI agents
+
+Minion works well on its own, and it is also a good fit for agent-assisted workflows. If you use an AI coding or assistant agent, point it at [`AGENTS.md`](AGENTS.md). It will pick up the repository skill in [`skills/minion/`](skills/minion/SKILL.md), covering installation, one-off research, saved monitors, operation, updates, and troubleshooting, and install it using whatever skill mechanism your agent supports.
+
+---
+
 ## Passing Data Between Minions
 
 Minions can hand data to other minions. This is useful for splitting work — one minion gathers links, another studies them for a different topic.
@@ -341,7 +360,7 @@ masks:
     replacement: '<METRIC>'
 ```
 
-Masks are applied in order during `GenerateContentHash()`. Edit `~/.config/minion/masks.yaml` to add custom patterns for your target sites.
+Masks are applied in order when content is compared. Edit `~/.config/minion/masks.yaml` to add custom patterns for your target sites.
 
 ---
 
