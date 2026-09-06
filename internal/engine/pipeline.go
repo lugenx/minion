@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/utils"
 
 	"minion/internal/config"
 	"minion/internal/delivery"
@@ -88,12 +89,20 @@ type RunContext struct {
 	Ephemeral  bool
 }
 
-func (r *RunContext) GetBrowser(timeoutSec int) (*rod.Browser, error) {
+func newBrowserDownloader(ctx context.Context) *launcher.Browser {
+	downloader := launcher.NewBrowser()
+	downloader.Context = ctx
+	downloader.Logger = utils.LoggerQuiet
+	return downloader
+}
+
+func (r *RunContext) GetBrowser(ctx context.Context) (*rod.Browser, error) {
 	if r.Browser == nil {
-		if timeoutSec <= 0 {
-			timeoutSec = 15
+		bin, err := newBrowserDownloader(ctx).Get()
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare chromium: %w", err)
 		}
-		l := launcher.New()
+		l := launcher.New().Context(ctx).Bin(bin)
 		u, err := l.Launch()
 		if err != nil {
 			return nil, fmt.Errorf("failed to launch chromium: %w", err)
@@ -215,7 +224,7 @@ func RunMission(ctx context.Context, minion *config.MinionConfig, runCtx *RunCon
 				var links []string
 				var err error
 				if source.Render {
-					browser, bErr := runCtx.GetBrowser(globalTimeout)
+					browser, bErr := runCtx.GetBrowser(ctx)
 					if bErr != nil {
 						runCtx.Stats.Errors++
 						step("from", bErr.Error(), true)
@@ -436,6 +445,10 @@ func deliverTargets(ctx context.Context, minion *config.MinionConfig, runCtx *Ru
 			} else {
 				runCtx.SmartSplit[m.URL] = m.ID
 			}
+		}
+
+		if saveHash && m.Timestamp == "" {
+			m.Timestamp = time.Now().Format(time.RFC3339)
 		}
 
 		if saveHash && runCtx.OnResult != nil {

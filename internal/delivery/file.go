@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,27 +53,30 @@ func WriteFileLine(path string, item *types.Item, capacity *int) error {
 		return err
 	}
 
-	fi, statErr := os.Stat(path)
-	fileExists := statErr == nil && fi.Size() > 0
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open file for append: %w", err)
 	}
 	defer f.Close()
-
-	if fileExists {
-		if _, err := f.WriteString("---\n"); err != nil {
-			return fmt.Errorf("failed to write separator: %w", err)
-		}
+	if err := lockFile(f); err != nil {
+		return fmt.Errorf("failed to lock file: %w", err)
 	}
+	defer unlockFile(f)
 
-	if _, err := f.Write(data); err != nil {
+	fi, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat file: %w", err)
+	}
+	payload := data
+	if fi.Size() > 0 {
+		payload = append([]byte("---\n"), data...)
+	}
+	if _, err := f.Write(payload); err != nil {
 		return fmt.Errorf("failed to write: %w", err)
 	}
 
 	if capacity != nil {
-		if err := trimFile(path, *capacity); err != nil {
+		if err := trimFile(f, *capacity); err != nil {
 			return fmt.Errorf("failed to trim: %w", err)
 		}
 	}
@@ -80,8 +84,11 @@ func WriteFileLine(path string, item *types.Item, capacity *int) error {
 	return nil
 }
 
-func trimFile(path string, capacity int) error {
-	raw, err := os.ReadFile(path)
+func trimFile(file *os.File, capacity int) error {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	raw, err := io.ReadAll(file)
 	if err != nil {
 		return err
 	}
@@ -110,7 +117,14 @@ func trimFile(path string, capacity int) error {
 		buf.WriteByte('\n')
 	}
 
-	return os.WriteFile(path, []byte(buf.String()), 0644)
+	if err := file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	_, err = file.WriteString(buf.String())
+	return err
 }
 
 func splitDocs(raw string) []string {

@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -55,13 +55,17 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 	step("fetch", fmt.Sprintf("running `%s`", command), false)
 
 	execCtx, execCancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-	out, runErr := exec.CommandContext(execCtx, "sh", "-c", expandedCmd).CombinedOutput()
+	commandProcess := exec.CommandContext(execCtx, "sh", "-c", expandedCmd)
+	configureCommandProcess(commandProcess)
+	commandProcess.WaitDelay = time.Duration(timeoutSec) * time.Second
+	out, runErr := commandProcess.CombinedOutput()
 	execErr := execCtx.Err()
 	execCancel()
 
 	exitCode := 0
 	if runErr != nil {
-		if execErr == context.DeadlineExceeded {
+		if execErr == context.DeadlineExceeded || errors.Is(runErr, exec.ErrWaitDelay) {
+			_ = terminateCommandProcess(commandProcess)
 			runCtx.Stats.Errors++
 			step("fetch", fmt.Sprintf("command timed out after %ds: `%s`", timeoutSec, command), true)
 			return nil
@@ -212,38 +216,13 @@ func processCommandItem(ctx context.Context, minion *config.MinionConfig, item *
 			userMessage += content
 
 			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-			raw, cost, err := llm.Chat(evalCtx, model, systemP, userMessage, true)
+			res, cost, err := requestStructured[commandResult](evalCtx, model, systemP, userMessage, llm.Chat)
 			evalCancel()
+			runCtx.Stats.TotalCost += cost
 
 			if err != nil {
 				runCtx.Stats.Errors++
 				step("do", fmt.Sprintf("`%s` -> %v", command, err), true)
-				continue
-			}
-
-			runCtx.Stats.TotalCost += cost
-
-			raw = strings.TrimSpace(raw)
-			if strings.HasPrefix(raw, "```json") {
-				raw = strings.TrimPrefix(raw, "```json")
-			} else if strings.HasPrefix(raw, "```") {
-				raw = strings.TrimPrefix(raw, "```")
-			}
-			if strings.HasSuffix(raw, "```") {
-				raw = strings.TrimSuffix(raw, "```")
-			}
-
-			startIdx := strings.Index(raw, "{")
-			endIdx := strings.LastIndex(raw, "}")
-			if startIdx != -1 && endIdx != -1 && endIdx >= startIdx {
-				raw = raw[startIdx : endIdx+1]
-			}
-			raw = strings.TrimSpace(raw)
-
-			var res commandResult
-			if err := json.Unmarshal([]byte(raw), &res); err != nil {
-				runCtx.Stats.Errors++
-				step("do", fmt.Sprintf("failed to parse llm output: %v", err), true)
 				continue
 			}
 
