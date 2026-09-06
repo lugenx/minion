@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -56,9 +55,12 @@ func processFileItem(ctx context.Context, minion *config.MinionConfig, item *typ
 
 	parts := splitDocs(content)
 
-	cursorHash, err := runCtx.Store.GetFileHash(filePath, minion.Filename)
-	if err != nil {
-		step("from", fmt.Sprintf("cursor read error: %v", err), true)
+	cursorHash := ""
+	if !runCtx.Ephemeral {
+		cursorHash, err = runCtx.Store.GetFileHash(filePath, minion.Filename)
+		if err != nil {
+			step("from", fmt.Sprintf("cursor read error: %v", err), true)
+		}
 	}
 
 	docStart := 0
@@ -97,24 +99,27 @@ func processFileItem(ctx context.Context, minion *config.MinionConfig, item *typ
 		var rec types.FileRecord
 		if err := yaml.Unmarshal([]byte(doc), &rec); err != nil {
 			matchArray = append(matchArray, types.Item{
-				ID:      generateID(),
-				Text:    doc,
-				Summary: doc,
+				ID:       generateID(),
+				FilePath: item.FilePath,
+				Text:     doc,
+				Summary:  doc,
 			})
 			continue
 		}
 
-		if rec.Title == "" && rec.URL == "" && rec.Summary == "" && rec.Text == "" {
+		if rec.Title == "" && rec.URL == "" && rec.Summary == "" && rec.Text == "" && rec.Timestamp == "" {
 			matchArray = append(matchArray, types.Item{
-				ID:      generateID(),
-				Text:    doc,
-				Summary: doc,
+				ID:       generateID(),
+				FilePath: item.FilePath,
+				Text:     doc,
+				Summary:  doc,
 			})
 			continue
 		}
 
 		matchArray = append(matchArray, types.Item{
 			ID:        generateID(),
+			FilePath:  item.FilePath,
 			URL:       rec.URL,
 			Title:     rec.Title,
 			Summary:   rec.Summary,
@@ -257,38 +262,13 @@ func processFileItem(ctx context.Context, minion *config.MinionConfig, item *typ
 			userMessage += content
 
 			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-			raw, cost, err := llm.Chat(evalCtx, model, systemPrompt, userMessage, true)
+			res, cost, err := requestStructured[fileResult](evalCtx, model, systemPrompt, userMessage, llm.Chat)
 			evalCancel()
+			runCtx.Stats.TotalCost += cost
 
 			if err != nil {
 				runCtx.Stats.Errors++
 				step("do", fmt.Sprintf("→ %v", err), true)
-				continue
-			}
-
-			runCtx.Stats.TotalCost += cost
-
-			raw = strings.TrimSpace(raw)
-			if strings.HasPrefix(raw, "```json") {
-				raw = strings.TrimPrefix(raw, "```json")
-			} else if strings.HasPrefix(raw, "```") {
-				raw = strings.TrimPrefix(raw, "```")
-			}
-			if strings.HasSuffix(raw, "```") {
-				raw = strings.TrimSuffix(raw, "```")
-			}
-
-			startIdx := strings.Index(raw, "{")
-			endIdx := strings.LastIndex(raw, "}")
-			if startIdx != -1 && endIdx != -1 && endIdx >= startIdx {
-				raw = raw[startIdx : endIdx+1]
-			}
-			raw = strings.TrimSpace(raw)
-
-			var res fileResult
-			if err := json.Unmarshal([]byte(raw), &res); err != nil {
-				runCtx.Stats.Errors++
-				step("do", fmt.Sprintf("failed to parse llm output: %v", err), true)
 				continue
 			}
 
@@ -299,7 +279,7 @@ func processFileItem(ctx context.Context, minion *config.MinionConfig, item *typ
 
 			runCtx.Stats.Results += len(res.Matches)
 
-			nextArray = buildFileResultItems(m, res.Matches)
+			nextArray = append(nextArray, buildFileResultItems(m, res.Matches)...)
 		}
 		matchArray = nextArray
 		if len(matchArray) == 0 {
@@ -307,14 +287,16 @@ func processFileItem(ctx context.Context, minion *config.MinionConfig, item *typ
 		}
 	}
 
-	if len(minion.Tell) > 0 {
+	if len(minion.Tell) > 0 || runCtx.OnResult != nil {
 		deliverTargets(ctx, minion, runCtx, matchArray, minion.Tell, true)
 	}
 
-	lastRaw := strings.TrimSpace(parts[len(parts)-1])
-	lastHash := sha256.Sum256([]byte(lastRaw))
-	newHash := fmt.Sprintf("%x", lastHash[:8])
-	_ = runCtx.Store.UpdateFileHash(filePath, minion.Filename, newHash)
+	if !runCtx.Ephemeral {
+		lastRaw := strings.TrimSpace(parts[len(parts)-1])
+		lastHash := sha256.Sum256([]byte(lastRaw))
+		newHash := fmt.Sprintf("%x", lastHash[:8])
+		_ = runCtx.Store.UpdateFileHash(filePath, minion.Filename, newHash)
+	}
 
 	return nil
 }

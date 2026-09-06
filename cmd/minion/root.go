@@ -14,7 +14,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:     "minion",
 	Short:   "Minion is an AI web monitoring agent",
-	Version: "4.5.0",
+	Version: "4.6.0",
 	Run: func(cmd *cobra.Command, args []string) {
 		config.LoadEnv()
 		tui.Start()
@@ -60,6 +60,7 @@ evaluates the survivors using an LLM via OpenRouter, and sends matches to a webh
 
 func Execute() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.SilenceErrors = true
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

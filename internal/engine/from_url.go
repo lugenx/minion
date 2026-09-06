@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -56,23 +55,28 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 			continue
 		}
 
-		isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
-		if err == nil && isDiscarded {
-			step("discarded", fmt.Sprintf("already discarded: `%s`", m.URL), false)
-			continue
+		if !runCtx.Ephemeral {
+			isDiscarded, err := runCtx.Store.IsDiscarded(m.URL, minion.Filename)
+			if err == nil && isDiscarded {
+				step("discarded", fmt.Sprintf("already discarded: `%s`", m.URL), false)
+				continue
+			}
 		}
 
 		if m.Text != "" && m.TempHash != "" {
 			step("fetch", fmt.Sprintf("passed through: `%s`", m.URL), false)
 
-			savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
-			if savedHash == m.TempHash {
-				runCtx.Stats.Unchanged++
-				step("unchanged", "skipped", false)
-				continue
+			if !runCtx.Ephemeral {
+				savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
+				if savedHash == m.TempHash {
+					runCtx.Stats.Unchanged++
+					step("unchanged", "skipped", false)
+					continue
+				}
+
+				_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, m.TempHash)
 			}
 
-			_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, m.TempHash)
 			scrapedArray = append(scrapedArray, m)
 			continue
 		}
@@ -86,7 +90,7 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 		var text, hash string
 		var fetchErr error
 		if m.Render {
-			browser, bErr := runCtx.GetBrowser(timeoutSec)
+			browser, bErr := runCtx.GetBrowser(ctx)
 			if bErr != nil {
 				runCtx.Stats.Errors++
 				step("fetch", bErr.Error(), true)
@@ -104,14 +108,16 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 
 		runCtx.Stats.Fetched++
 
-		savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
-		if savedHash == hash {
-			runCtx.Stats.Unchanged++
-			step("unchanged", "skipped", false)
-			continue
-		}
+		if !runCtx.Ephemeral {
+			savedHash, _ := runCtx.Store.GetPageHash(m.URL, minion.Filename)
+			if savedHash == hash {
+				runCtx.Stats.Unchanged++
+				step("unchanged", "skipped", false)
+				continue
+			}
 
-		_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, hash)
+			_ = runCtx.Store.UpdatePageHash(m.URL, minion.Filename, hash)
+		}
 
 		m.Text = text
 		m.TempHash = hash
@@ -235,38 +241,13 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 			userMessage += content
 
 			evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-			raw, cost, err := llm.Chat(evalCtx, model, systemPrompt, userMessage, true)
+			res, cost, err := requestStructured[urlResult](evalCtx, model, systemPrompt, userMessage, llm.Chat)
 			evalCancel()
+			runCtx.Stats.TotalCost += cost
 
 			if err != nil {
 				runCtx.Stats.Errors++
 				step("do", fmt.Sprintf("`%s` → %v", m.URL, err), true)
-				continue
-			}
-
-			runCtx.Stats.TotalCost += cost
-
-			raw = strings.TrimSpace(raw)
-			if strings.HasPrefix(raw, "```json") {
-				raw = strings.TrimPrefix(raw, "```json")
-			} else if strings.HasPrefix(raw, "```") {
-				raw = strings.TrimPrefix(raw, "```")
-			}
-			if strings.HasSuffix(raw, "```") {
-				raw = strings.TrimSuffix(raw, "```")
-			}
-
-			startIdx := strings.Index(raw, "{")
-			endIdx := strings.LastIndex(raw, "}")
-			if startIdx != -1 && endIdx != -1 && endIdx >= startIdx {
-				raw = raw[startIdx : endIdx+1]
-			}
-			raw = strings.TrimSpace(raw)
-
-			var res urlResult
-			if err := json.Unmarshal([]byte(raw), &res); err != nil {
-				runCtx.Stats.Errors++
-				step("do", fmt.Sprintf("failed to parse llm output: %v", err), true)
 				continue
 			}
 
@@ -277,7 +258,9 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 				} else {
 					runCtx.Stats.Discarded++
 					step("discard", fmt.Sprintf("irrelevant: `%s`", m.URL), false)
-					_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+					if !runCtx.Ephemeral {
+						_ = runCtx.Store.MarkDiscarded(m.URL, minion.Filename)
+					}
 				}
 			} else if len(res.Matches) == 0 {
 				runCtx.Stats.Skipped++
@@ -294,7 +277,7 @@ func processURLItem(ctx context.Context, minion *config.MinionConfig, item *type
 		}
 	}
 
-	if len(minion.Tell) > 0 {
+	if len(minion.Tell) > 0 || runCtx.OnResult != nil {
 		deliverTargets(ctx, minion, runCtx, matchArray, minion.Tell, true)
 	}
 

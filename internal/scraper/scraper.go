@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -38,7 +40,7 @@ func FetchAndSanitize(ctx context.Context, targetURL string, timeoutSec int) (st
 	client := getClient(timeoutSec)
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("http get failed: %w", err)
+		return "", "", wrapOperationError("http get", err, timeoutSec)
 	}
 	defer resp.Body.Close()
 
@@ -111,23 +113,23 @@ func FetchRenderedAndSanitize(ctx context.Context, browser *rod.Browser, targetU
 	// Create an incognito session for true isolation, with a strict timeout for this PAGE only
 	page, err := stealth.Page(browser.Context(ctx).Timeout(time.Duration(timeoutSec) * time.Second))
 	if err != nil {
-		return "", "", fmt.Errorf("stealth page failed: %w", err)
+		return "", "", wrapOperationError("stealth page", err, timeoutSec)
 	}
 	defer page.Close()
-	
+
 	if err := page.Navigate(targetURL); err != nil {
-		return "", "", fmt.Errorf("rod navigate failed: %w", err)
+		return "", "", wrapOperationError("rod navigate", err, timeoutSec)
 	}
-	
+
 	if err := page.WaitLoad(); err != nil {
-		return "", "", fmt.Errorf("rod wait load failed: %w", err)
+		return "", "", wrapOperationError("rod wait load", err, timeoutSec)
 	}
-	
+
 	_ = page.WaitStable(2 * time.Second)
-	
+
 	html, err := page.HTML()
 	if err != nil {
-		return "", "", fmt.Errorf("rod get html failed: %w", err)
+		return "", "", wrapOperationError("rod get html", err, timeoutSec)
 	}
 
 	return sanitizeHTML(strings.NewReader(html), targetURL)
@@ -136,23 +138,23 @@ func FetchRenderedAndSanitize(ctx context.Context, browser *rod.Browser, targetU
 func ExtractLinksRendered(ctx context.Context, browser *rod.Browser, targetURL, pattern string, timeoutSec int) ([]string, error) {
 	page, err := stealth.Page(browser.Context(ctx).Timeout(time.Duration(timeoutSec) * time.Second))
 	if err != nil {
-		return nil, fmt.Errorf("stealth page failed: %w", err)
+		return nil, wrapOperationError("stealth page", err, timeoutSec)
 	}
 	defer page.Close()
-	
+
 	if err := page.Navigate(targetURL); err != nil {
-		return nil, fmt.Errorf("rod navigate failed: %w", err)
+		return nil, wrapOperationError("rod navigate", err, timeoutSec)
 	}
-	
+
 	if err := page.WaitLoad(); err != nil {
-		return nil, fmt.Errorf("rod wait load failed: %w", err)
+		return nil, wrapOperationError("rod wait load", err, timeoutSec)
 	}
-	
+
 	_ = page.WaitStable(2 * time.Second)
 
 	html, err := page.HTML()
 	if err != nil {
-		return nil, fmt.Errorf("rod get html failed: %w", err)
+		return nil, wrapOperationError("rod get html", err, timeoutSec)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
@@ -200,7 +202,7 @@ func ExtractLinks(ctx context.Context, targetURL, pattern string, timeoutSec int
 	client := getClient(timeoutSec)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http get failed: %w", err)
+		return nil, wrapOperationError("http get", err, timeoutSec)
 	}
 	defer resp.Body.Close()
 
@@ -246,7 +248,7 @@ func ExtractLinks(ctx context.Context, targetURL, pattern string, timeoutSec int
 
 func SearchDuckDuckGo(ctx context.Context, query string, maxResults int, timeoutSec int) ([]string, error) {
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", searchURL, nil)
 	if err != nil {
 		return nil, err
@@ -256,7 +258,7 @@ func SearchDuckDuckGo(ctx context.Context, query string, maxResults int, timeout
 	client := getClient(timeoutSec)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("search failed: %w", err)
+		return nil, wrapOperationError("search", err, timeoutSec)
 	}
 	defer resp.Body.Close()
 
@@ -288,4 +290,11 @@ func SearchDuckDuckGo(ctx context.Context, query string, maxResults int, timeout
 	})
 
 	return results, nil
+}
+
+func wrapOperationError(operation string, err error, timeoutSec int) error {
+	if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+		return fmt.Errorf("%s timed out after %ds: %w", operation, timeoutSec, err)
+	}
+	return fmt.Errorf("%s failed: %w", operation, err)
 }

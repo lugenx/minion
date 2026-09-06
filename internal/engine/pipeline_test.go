@@ -2,10 +2,17 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"minion/internal/config"
 	"minion/internal/store"
@@ -342,6 +349,161 @@ func TestProcessURLItem_NoDoNoTell(t *testing.T) {
 	err := processURLItem(context.Background(), m, item, runCtx)
 	if err != nil {
 		t.Fatalf("expected nil, got: %v", err)
+	}
+}
+
+func TestProcessURLItem_EmitsResultWithoutTell(t *testing.T) {
+	var results []types.Item
+	runCtx := &RunContext{
+		Stats:     &Stats{},
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+	}
+	m := &config.MinionConfig{Name: "inline", Filename: "inline"}
+	item := &types.Item{
+		ID:         "test-id",
+		SourceType: "url",
+		URL:        "https://example.com",
+		Text:       "sanitized content",
+		TempHash:   "content-hash",
+	}
+
+	if err := processURLItem(context.Background(), m, item, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Text != "sanitized content" {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+}
+
+func TestProcessURLItem_EphemeralBypassesPersistentState(t *testing.T) {
+	s := setupTestStore(t)
+	if err := s.UpdatePageHash("https://example.com", "inline", "old-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkDiscarded("https://example.com", "inline"); err != nil {
+		t.Fatal(err)
+	}
+
+	var results []types.Item
+	runCtx := &RunContext{
+		Store:     s,
+		Stats:     &Stats{},
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+	}
+	m := &config.MinionConfig{Name: "inline", Filename: "inline"}
+	item := &types.Item{
+		ID:         "test-id",
+		SourceType: "url",
+		URL:        "https://example.com",
+		Text:       "content",
+		TempHash:   "new-hash",
+	}
+
+	if err := processURLItem(context.Background(), m, item, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected discarded and previously seen item to be emitted, got %d results", len(results))
+	}
+	if runCtx.Stats.Unchanged != 0 {
+		t.Fatalf("expected no persistent dedup, got %d unchanged", runCtx.Stats.Unchanged)
+	}
+	hash, err := s.GetPageHash("https://example.com", "inline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != "old-hash" {
+		t.Fatalf("ephemeral run mutated stored hash: %q", hash)
+	}
+}
+
+func TestRunMission_EphemeralFetchesSanitizedContentWithoutStore(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `<html><body><script>hidden()</script><main>Visible content <a href="/docs">Docs</a></main></body></html>`)
+	}))
+	defer server.Close()
+
+	var results []types.Item
+	runCtx := &RunContext{
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+	}
+	m := &config.MinionConfig{
+		Name:     "inline",
+		Filename: "inline",
+		From:     []config.Source{{URL: server.URL}},
+		Settings: config.Settings{Timeout: 5, Delay: 1},
+	}
+
+	if err := RunMission(context.Background(), m, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one raw result, got %d", len(results))
+	}
+	if !strings.Contains(results[0].Text, "Visible content") || !strings.Contains(results[0].Text, "[Link: "+server.URL+"/docs]") {
+		t.Fatalf("expected sanitized page content, got %q", results[0].Text)
+	}
+	if strings.Contains(results[0].Text, "hidden") {
+		t.Fatalf("script content was not sanitized: %q", results[0].Text)
+	}
+}
+
+func TestProcessFileItem_EphemeralIgnoresCursor(t *testing.T) {
+	s := setupTestStore(t)
+	path := filepath.Join(t.TempDir(), "input.txt")
+	if err := os.WriteFile(path, []byte("first\n---\nsecond\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	firstHash := sha256.Sum256([]byte("first"))
+	cursor := fmt.Sprintf("%x", firstHash[:8])
+	if err := s.UpdateFileHash(path, "inline", cursor); err != nil {
+		t.Fatal(err)
+	}
+
+	var results []types.Item
+	runCtx := &RunContext{
+		Store:     s,
+		Stats:     &Stats{},
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+	}
+	m := &config.MinionConfig{Name: "inline", Filename: "inline"}
+
+	if err := processFileItem(context.Background(), m, &types.Item{FilePath: path}, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0].Text != "first" || results[1].Text != "second" {
+		t.Fatalf("expected every file record, got %#v", results)
+	}
+	savedCursor, err := s.GetFileHash(path, "inline")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedCursor != cursor {
+		t.Fatalf("ephemeral run mutated file cursor: %q", savedCursor)
+	}
+}
+
+func TestRunMission_EphemeralDoesNotRequireStore(t *testing.T) {
+	runCtx := &RunContext{Ephemeral: true}
+	m := &config.MinionConfig{Name: "inline", Filename: "inline"}
+
+	if err := RunMission(context.Background(), m, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if runCtx.Stats == nil {
+		t.Fatal("expected mission stats")
 	}
 }
 
@@ -1097,5 +1259,99 @@ func TestLLMParseStripping(t *testing.T) {
 	}
 	if !strings.Contains(parsed, `"test item"`) {
 		t.Fatalf("expected test item in parsed output: %s", parsed)
+	}
+}
+
+func TestProcessFileItem_TimestampOnlyFileRecordStaysStructured(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "timestamp-only.yaml")
+	wantTimestamp := "2026-09-06T00:05:00Z"
+	if err := os.WriteFile(path, []byte("timestamp: \""+wantTimestamp+"\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var results []types.Item
+	runCtx := &RunContext{
+		Stats:     &Stats{},
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+	}
+	m := &config.MinionConfig{Name: "inline", Filename: "inline"}
+
+	if err := processFileItem(context.Background(), m, &types.Item{FilePath: path}, runCtx); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one structured record, got %#v", results)
+	}
+	got := results[0]
+	if got.Timestamp != wantTimestamp {
+		t.Fatalf("timestamp changed: got %q, want %q", got.Timestamp, wantTimestamp)
+	}
+	if got.Title != "" || got.URL != "" || got.Summary != "" || got.Text != "" {
+		t.Fatalf("timestamp-only record was reinterpreted as content: %#v", got)
+	}
+}
+
+func TestDeliverTargets_SharesGeneratedTimestampWithOnResultAndFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "result.yaml")
+	var captured types.Item
+	runCtx := &RunContext{
+		Stats: &Stats{},
+		OnResult: func(item types.Item) {
+			captured = item
+		},
+	}
+	m := &config.MinionConfig{Name: "timestamp-test", Filename: "timestamp-test.yaml"}
+
+	deliverTargets(
+		context.Background(),
+		m,
+		runCtx,
+		[]types.Item{{Text: "same result"}},
+		[]map[string]interface{}{{"file": path}},
+		true,
+	)
+
+	if captured.Timestamp == "" {
+		t.Fatal("OnResult received an empty timestamp")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved types.FileRecord
+	if err := yaml.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Timestamp != captured.Timestamp {
+		t.Fatalf("destinations received different timestamps: callback=%q file=%q", captured.Timestamp, saved.Timestamp)
+	}
+}
+
+func TestNewBrowserDownloaderUsesQuietLogger(t *testing.T) {
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer func() { os.Stdout = originalStdout }()
+	os.Stdout = writer
+
+	downloader := newBrowserDownloader(context.Background())
+	downloader.Logger.Println("download noise")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = originalStdout
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output) != 0 {
+		t.Fatalf("browser downloader wrote to stdout: %q", output)
 	}
 }

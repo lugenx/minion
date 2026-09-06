@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -72,38 +71,13 @@ func processDoOnly(ctx context.Context, minion *config.MinionConfig, item *types
 	userMessage := minion.Do
 
 	evalCtx, evalCancel := context.WithTimeout(ctx, 120*time.Second)
-	raw, cost, err := llm.Chat(evalCtx, model, systemPrompt, userMessage, true)
+	res, cost, err := requestStructured[doResult](evalCtx, model, systemPrompt, userMessage, llm.Chat)
 	evalCancel()
+	runCtx.Stats.TotalCost += cost
 
 	if err != nil {
 		runCtx.Stats.Errors++
 		step("do", fmt.Sprintf("→ %v", err), true)
-		return nil
-	}
-
-	runCtx.Stats.TotalCost += cost
-
-	raw = strings.TrimSpace(raw)
-	if strings.HasPrefix(raw, "```json") {
-		raw = strings.TrimPrefix(raw, "```json")
-	} else if strings.HasPrefix(raw, "```") {
-		raw = strings.TrimPrefix(raw, "```")
-	}
-	if strings.HasSuffix(raw, "```") {
-		raw = strings.TrimSuffix(raw, "```")
-	}
-
-	startIdx := strings.Index(raw, "{")
-	endIdx := strings.LastIndex(raw, "}")
-	if startIdx != -1 && endIdx != -1 && endIdx >= startIdx {
-		raw = raw[startIdx : endIdx+1]
-	}
-	raw = strings.TrimSpace(raw)
-
-	var res doResult
-	if err := json.Unmarshal([]byte(raw), &res); err != nil {
-		runCtx.Stats.Errors++
-		step("do", fmt.Sprintf("failed to parse llm json output: %v", err), true)
 		return nil
 	}
 
@@ -120,7 +94,7 @@ func processDoOnly(ctx context.Context, minion *config.MinionConfig, item *types
 		return nil
 	}
 
-	if len(minion.Tell) > 0 {
+	if len(minion.Tell) > 0 || runCtx.OnResult != nil {
 		deliverTargets(ctx, minion, runCtx, nextArray, minion.Tell, true)
 	}
 

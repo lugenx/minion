@@ -3,6 +3,7 @@ package minion
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -21,41 +22,124 @@ import (
 
 	"minion/internal/character"
 	"minion/internal/config"
+	"minion/internal/delivery"
 	"minion/internal/engine"
 	"minion/internal/store"
+	"minion/internal/types"
 )
 
 var detached bool
 
 var runCmd = &cobra.Command{
-	Use:   "run [filename]",
-	Short: "Queue a minion to run immediately, or start the master daemon",
+	Use:   "run [filename | key=value ...]",
+	Short: "Run an inline or saved minion, or start the master daemon",
 	Long: `If no filename is provided, starts the master daemon in the background or foreground.
-If a filename is provided, it instantly queues the minion to be executed by the master daemon.`,
-	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+
+If a filename is provided, it queues the saved minion for execution by the master daemon.
+If key=value assignments are provided, it runs an ephemeral minion synchronously.`,
+	Args:         validateRunArgs,
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if isInlineRun(args) {
+			if detached {
+				return fmt.Errorf("--detach cannot be used with an inline run")
+			}
+			return runInline(cmd, args)
+		}
+
 		config.LoadEnv()
 
 		if len(args) == 1 {
-			filename := args[0]
-			queueMinionRun(filename)
-			return
+			queueMinionRun(args[0])
+			return nil
 		}
 
 		checkPIDLock()
 
 		if detached {
 			runDetached()
-			return
+			return nil
 		}
 
 		runDaemon()
+		return nil
 	},
 }
 
 func init() {
 	runCmd.Flags().BoolVarP(&detached, "detach", "d", false, "Run daemon in the background")
 	rootCmd.AddCommand(runCmd)
+}
+
+func validateRunArgs(_ *cobra.Command, args []string) error {
+	if len(args) <= 1 || isInlineRun(args) {
+		return nil
+	}
+	return fmt.Errorf("accepts one filename or one or more key=value assignments")
+}
+
+func isInlineRun(args []string) bool {
+	return len(args) > 0 && strings.Contains(args[0], "=")
+}
+
+func runInline(cmd *cobra.Command, assignments []string) error {
+	m, err := config.ParseInline(assignments)
+	if err != nil {
+		return err
+	}
+	config.LoadExistingEnv()
+	return runInlineConfig(cmd, m)
+}
+
+func runInlineConfig(cmd *cobra.Command, m *config.MinionConfig) error {
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	defer cancel()
+
+	var results []types.Item
+	runCtx := &engine.RunContext{
+		Ephemeral: true,
+		OnResult: func(item types.Item) {
+			results = append(results, item)
+		},
+		OnStep: func(step, details string, isError bool) {
+			if isError {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", step, details)
+			}
+		},
+	}
+
+	runErr := engine.RunMission(ctx, m, runCtx)
+	if err := writeInlineResults(cmd.OutOrStdout(), results); err != nil {
+		return fmt.Errorf("write results: %w", err)
+	}
+	if runErr != nil {
+		return fmt.Errorf("inline run failed: %w", runErr)
+	}
+	if runCtx.Stats != nil && runCtx.Stats.Errors > 0 {
+		return fmt.Errorf("inline run completed with %d error(s)", runCtx.Stats.Errors)
+	}
+	return nil
+}
+
+func writeInlineResults(w io.Writer, items []types.Item) error {
+	for i := range items {
+		data, err := delivery.MarshalFileRecordYAML(&items[i])
+		if err != nil {
+			return err
+		}
+
+		if i > 0 {
+			if _, err := io.WriteString(w, "---\n"); err != nil {
+				return err
+			}
+		}
+		if _, err := w.Write(data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func checkPIDLock() {
@@ -94,9 +178,9 @@ func runDetached() {
 		os.Exit(1)
 	}
 
-	cmd := exec.Command(exe, "run") 
+	cmd := exec.Command(exe, "run")
 	setSysProcAttr(cmd)
-	
+
 	logFile, err := os.OpenFile(config.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		fmt.Printf("Failed to open log file: %v\n", err)
@@ -148,11 +232,11 @@ func queueMinionRun(filename string) {
 	}
 
 	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
-	
+
 	displayName := strings.TrimSuffix(m.Filename, ".yaml")
 	displayName = strings.TrimSuffix(displayName, ".yml")
 	fmt.Printf("%s\n", successStyle.Render(fmt.Sprintf("Running %s...", displayName)))
-	
+
 	if !isDaemonRunning() {
 		runDetached()
 	}
@@ -163,7 +247,7 @@ func logMessage(level, minionName, msg string) {
 	colorRenderer.SetColorProfile(termenv.TrueColor)
 
 	timeStr := colorRenderer.NewStyle().Foreground(lipgloss.Color("240")).Render(time.Now().Format("2006-01-02 15:04:05"))
-	
+
 	levelStyle := colorRenderer.NewStyle().Bold(true)
 	switch level {
 	case "INFO":
@@ -177,11 +261,11 @@ func logMessage(level, minionName, msg string) {
 	}
 
 	nameStyle := colorRenderer.NewStyle().Foreground(lipgloss.Color("250"))
-	
-	fmt.Printf("%s %s %s: %s\n", 
-		timeStr, 
-		levelStyle.Render(fmt.Sprintf("[%s]", level)), 
-		nameStyle.Render(fmt.Sprintf("(%s)", minionName)), 
+
+	fmt.Printf("%s %s %s: %s\n",
+		timeStr,
+		levelStyle.Render(fmt.Sprintf("[%s]", level)),
+		nameStyle.Render(fmt.Sprintf("(%s)", minionName)),
 		msg,
 	)
 }
@@ -203,7 +287,7 @@ func runDaemon() {
 		os.Exit(1)
 	}
 	defer dbStore.Close()
-	
+
 	_ = dbStore.ClearActiveJobs()
 	_ = dbStore.ClearAbortQueue()
 
@@ -375,7 +459,7 @@ func executeMinion(ctx context.Context, dbStore *store.Store, m *config.MinionCo
 
 	fileRenderer := lipgloss.NewRenderer(minionLogFile)
 	fileRenderer.SetColorProfile(termenv.TrueColor)
-	
+
 	stepStyle := fileRenderer.NewStyle().Bold(true).Width(15).Align(lipgloss.Right).MarginRight(2)
 	neutralColor := lipgloss.Color("240")
 	urlRe := regexp.MustCompile(`https?://[^\s` + "`" + `]+`)
@@ -384,10 +468,10 @@ func executeMinion(ctx context.Context, dbStore *store.Store, m *config.MinionCo
 	// Set a reasonable absolute max timeout for any minion execution
 	runCtxTimeout, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
-	
+
 	activeCancels.Store(m.Filename, cancel)
 	defer activeCancels.Delete(m.Filename)
-	
+
 	runCtx := &engine.RunContext{
 		Store: dbStore,
 		OnStep: func(step, details string, isError bool) {
@@ -458,7 +542,7 @@ func executeMinion(ctx context.Context, dbStore *store.Store, m *config.MinionCo
 			if isError {
 				logMessage("ERROR", m.Name, fmt.Sprintf("%s: %s", step, details))
 			}
-		}, 
+		},
 	}
 
 	hasChain, _ := dbStore.HasChainData(m.Filename)
