@@ -12,6 +12,28 @@ import (
 	"minion/internal/types"
 )
 
+// MarshalFileRecordYAML converts an Item to the canonical FileRecord YAML representation.
+func MarshalFileRecordYAML(item *types.Item) ([]byte, error) {
+	ts := item.Timestamp
+	if ts == "" {
+		ts = time.Now().Format(time.RFC3339)
+	}
+
+	rec := types.FileRecord{
+		Title:     item.Title,
+		URL:       item.URL,
+		Summary:   item.Summary,
+		Text:      item.Text,
+		Timestamp: ts,
+	}
+
+	data, err := yaml.Marshal(&rec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal record: %w", err)
+	}
+	return data, nil
+}
+
 func WriteFileLine(path string, item *types.Item, capacity *int) error {
 	if path == "" {
 		return nil
@@ -25,22 +47,9 @@ func WriteFileLine(path string, item *types.Item, capacity *int) error {
 		return fmt.Errorf("failed to create parent dirs: %w", err)
 	}
 
-	ts := item.Timestamp
-	if ts == "" {
-		ts = time.Now().Format(time.RFC3339)
-	}
-
-	rec := types.FileRecord{
-		Title:     item.Title,
-		URL:       item.URL,
-		Summary:   item.Summary,
-		Text:   item.Text,
-		Timestamp: ts,
-	}
-
-	data, err := yaml.Marshal(&rec)
+	data, err := MarshalFileRecordYAML(item)
 	if err != nil {
-		return fmt.Errorf("failed to marshal record: %w", err)
+		return err
 	}
 
 	fi, statErr := os.Stat(path)

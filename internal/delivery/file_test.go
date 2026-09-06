@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,34 @@ func ptr(i int) *int { return &i }
 func tempFilePath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "output.yaml")
+}
+
+func TestWriteFileLineUsesSharedYAMLSerialization(t *testing.T) {
+	path := tempFilePath(t)
+	item := &types.Item{
+		Title:     "shared",
+		URL:       "https://example.com",
+		Text:      "same bytes",
+		Timestamp: "2026-09-05T12:00:00Z",
+	}
+	want := []byte("title: shared\nurl: https://example.com\ntext: same bytes\ntimestamp: \"2026-09-05T12:00:00Z\"\n")
+	serialized, err := MarshalFileRecordYAML(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(serialized, want) {
+		t.Fatalf("shared serialization changed the FileRecord YAML contract:\ngot:\n%s\nwant:\n%s", serialized, want)
+	}
+	if err := WriteFileLine(path, item, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, serialized) {
+		t.Fatalf("file output differs from shared serialization:\ngot:\n%s\nwant:\n%s", got, serialized)
+	}
 }
 
 func TestWriteFileLine_ItemWithText(t *testing.T) {

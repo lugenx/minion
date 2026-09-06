@@ -3,12 +3,16 @@ package minion
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"minion/internal/config"
 	"minion/internal/types"
@@ -37,34 +41,40 @@ func TestValidateRunArgs(t *testing.T) {
 	}
 }
 
-func TestWriteInlineResultsRaw(t *testing.T) {
+func TestWriteInlineResultsYAML(t *testing.T) {
 	items := []types.Item{
-		{URL: "https://example.com/one", Text: "first page"},
-		{Command: "printf second", Text: "second result"},
+		{URL: "https://example.com/one", Text: "first page\n\nsecond paragraph", Timestamp: "2026-09-05T12:00:00Z"},
+		{Command: "printf second", Text: "second result", Timestamp: "2026-09-05T12:01:00Z"},
 		{FilePath: "/tmp/input.yaml", Title: "Saved title", Summary: "Saved summary", Timestamp: "2026-09-05T12:00:00Z"},
+		{Title: "Analyzed", URL: "https://example.com/final", Summary: "Final-stage summary", Timestamp: "2026-09-05T12:02:00Z"},
 	}
 	var out bytes.Buffer
-	if err := writeInlineResults(&out, false, items); err != nil {
+	if err := writeInlineResults(&out, items); err != nil {
 		t.Fatal(err)
 	}
-	want := "Source: https://example.com/one\nfirst page\n\nSource: command: printf second\nsecond result\n\nSource: file: /tmp/input.yaml\nSaved title\nSaved summary\nTimestamp: 2026-09-05T12:00:00Z\n"
-	if out.String() != want {
-		t.Fatalf("unexpected output:\n%s\nwant:\n%s", out.String(), want)
-	}
-}
 
-func TestWriteInlineResultsAnalyzed(t *testing.T) {
-	items := []types.Item{
-		{Title: "First", URL: "https://example.com/one", Summary: "A summary."},
-		{Title: "Second", Summary: "Another summary."},
+	decoder := yaml.NewDecoder(&out)
+	var got []types.FileRecord
+	for {
+		var rec types.FileRecord
+		err := decoder.Decode(&rec)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decode YAML stream: %v", err)
+		}
+		got = append(got, rec)
 	}
-	var out bytes.Buffer
-	if err := writeInlineResults(&out, true, items); err != nil {
-		t.Fatal(err)
+
+	want := []types.FileRecord{
+		{URL: "https://example.com/one", Text: "first page\n\nsecond paragraph", Timestamp: "2026-09-05T12:00:00Z"},
+		{Text: "second result", Timestamp: "2026-09-05T12:01:00Z"},
+		{Title: "Saved title", Summary: "Saved summary", Timestamp: "2026-09-05T12:00:00Z"},
+		{Title: "Analyzed", URL: "https://example.com/final", Summary: "Final-stage summary", Timestamp: "2026-09-05T12:02:00Z"},
 	}
-	want := "First\nURL: https://example.com/one\nA summary.\n\nSecond\nAnother summary.\n"
-	if out.String() != want {
-		t.Fatalf("unexpected output:\n%s\nwant:\n%s", out.String(), want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unexpected records: %#v, want %#v", got, want)
 	}
 }
 
@@ -83,8 +93,12 @@ func TestRunInlineCommandRawOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runInline() error = %v, stderr=%q", err, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Source: command: printf inline-ok\ninline-ok") {
-		t.Fatalf("unexpected stdout: %q", stdout.String())
+	var rec types.FileRecord
+	if err := yaml.Unmarshal(stdout.Bytes(), &rec); err != nil {
+		t.Fatalf("stdout is not valid FileRecord YAML: %v\n%s", err, stdout.String())
+	}
+	if rec.Text != "inline-ok" || rec.Timestamp == "" {
+		t.Fatalf("unexpected stdout record: %#v", rec)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
@@ -106,8 +120,12 @@ func TestRunInlineCommandFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1 error") {
 		t.Fatalf("expected failed inline run, got %v", err)
 	}
-	if !strings.Contains(stdout.String(), "failed-output") {
-		t.Fatalf("expected command output, got %q", stdout.String())
+	var rec types.FileRecord
+	if err := yaml.Unmarshal(stdout.Bytes(), &rec); err != nil {
+		t.Fatalf("failure stdout is not valid FileRecord YAML: %v\n%s", err, stdout.String())
+	}
+	if !strings.Contains(rec.Text, "failed-output") {
+		t.Fatalf("expected command output, got %#v", rec)
 	}
 	if !strings.Contains(stderr.String(), "status 7") {
 		t.Fatalf("expected command failure diagnostic, got %q", stderr.String())
